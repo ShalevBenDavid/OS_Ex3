@@ -9,14 +9,13 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <time.h>
+#include <poll.h>
 
-#define IP_ADDRESS "127.0.0.1"
-#define SIZE 4098
+#define SIZE 100000000 // 100 MB.
+#define MAX_CONNECTIONS 1 // Allowing only one connection.
+#define NUM_OF_FD 2 // Number of file descriptors we monitor in poll().
 
 size_t send_message(char* ,int);
-
-
-
 
 size_t send_message(char* message ,int socketFD){
     size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
@@ -50,110 +49,144 @@ int recv_message(int clientSocket, char* buffer) {
     return -1;
 }
 
-
-
 int main(int argc, char* argv[]){
-    if(argc < 3){
-        printf("(-) Not the right format.\n");
-        exit(EXIT_FAILURE);
-    }
-    // Initialize variables for client or server appropriately.
-    int c_flag, port;
-    char message[SIZE + 1] = {0}; // size + 1 for the \0.;
-    struct sockaddr_in serverAddress;
-
-
-    // Checks if it's client/ server case.
-    if(strcmp(argv[1],"-c") == 0){
-        c_flag = 1;
-        port = atoi(argv[3]);
-        memset(&serverAddress, 0, sizeof(serverAddress));
-        serverAddress.sin_family = AF_INET;
-        serverAddress.sin_port = htons(port);
-        if (inet_pton(AF_INET, argv[2], &serverAddress.sin_addr) <= 0) {
-            perror("Invalid server address");
+    //---------------------------------- Client Side ---------------------------------
+    if (!strcmp(argv[1], "-c")) {
+        printf("c");
+        // Not the right format.
+        if(argc < 4){
+            printf("(-) Not the right format.\n");
             exit(EXIT_FAILURE);
         }
-    }else{
-        c_flag = 0;
-        port = atoi(argv[2]);
-    }
-   
+        printf("You are the client!\n");
 
-    //------------------------------- Create TCP Connection -----------------------------
-    // Creates socket named "socketFD". FD for file descriptor.
-    int socketFD = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&serverAddress, '\0', sizeof(serverAddress));
+        // Initialize variables for client or server appropriately.
+        char buffer[SIZE + 1] = {0}; // size + 1 for the \0.
+        struct sockaddr_in serverAddress;
 
-    // Check if we were successful in creating socket.
-    if(socketFD == -1) {
-        printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
-        exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
-    }
-    else {
-        printf("(=) Socket created successfully.\n");
-    }
+        // Initialize port and address.
+        int port = atoi(argv[3]);
+        char* address = argv[2];
 
-    //------------------------------- CLIENT HANDLING ------------------------------------
-    if(c_flag == true){
-        printf("CLIENT\n");
-        // Assign port and address to "serverAddress".
+        // Resting address.
+        memset(&serverAddress, 0, sizeof(serverAddress));
+        // Setting address to be IPv4.
         serverAddress.sin_family = AF_INET;
-        serverAddress.sin_port = htons(port); // Short, network byte order.
-        serverAddress.sin_addr.s_addr = inet_addr(IP_ADDRESS);
-
-        // Convert address to binary.
-        if (inet_pton(AF_INET, IP_ADDRESS, &serverAddress.sin_addr) <= 0)
-        {
+        // Setting the port.
+        serverAddress.sin_port = htons(port);
+        // Setting the IP address,
+        serverAddress.sin_addr.s_addr = inet_addr(address);
+        // If converting address files, exit.
+        if (inet_pton(AF_INET, address, &serverAddress.sin_addr) == 0) {
             printf("(-) Failed to convert IPv4 address to binary! -> inet_pton() failed with error code: %d\n", errno);
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            exit(EXIT_FAILURE);
         }
 
-        //Create connection with server.
+        // <<<<<<<<<<<<<<<<<<<<<<<<< Create TCP Connection >>>>>>>>>>>>>>>>>>>>>>>>>
+        // Creates TCP socket.
+        int socketFD = socket(AF_INET, SOCK_STREAM, 0);
+
+        // Check if we were successful in creating socket.
+        if (socketFD == -1) {
+            printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+        }
+        else {
+            printf("(=) Socket created successfully.\n");
+        }
+
+        // Create connection with server.
         int connection = connect(socketFD, (struct sockaddr*) &serverAddress, sizeof(serverAddress));
 
         // Check if we were successful in connecting with server.
-        if(connection == -1) {
+        if (connection == -1) {
             printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
-            exit(EXIT_FAILURE); // Exit program and return// EXIT_FAILURE (defined as 1 in stdlib.h).
+            close(socketFD);
+            exit(EXIT_FAILURE);
         }
         else {
             printf("(=) Connection with server established.\n\n");
         }
-        
-        //------------------------------- SENDING & RECIEVING MESSAGE ------------------------------------
-        char answer[256] = {0}; // size + 1 for the \0.;
-        while(true){
-            printf("Enter message to server: ");
-            scanf("%s", message);
-            if (send_message(message, socketFD) == -1) {
-            printf("(-) Failed to send message! -> send() failed with error code: %d\n", errno);
-            } else {
-                printf("(+) Sent the message.\n");
-            }
 
-            if (recv(socketFD, answer, 256, 0) <= 0) { // Check if we got an error (-1) or peer closed half side of the socket (0).
-            printf("(-) Error in receiving data or peer closed half side of the socket.");
-            } else {
-                printf("Server response: ");
-                puts(answer);
-            }
-            
-
+        // Create pollfd to check which fd have current events.
+        struct pollfd *pfds = malloc(sizeof *pfds * NUM_OF_FD);
+        if (!pfds) {
+            printf("(-) Failed to allocate memory for poll. %d\n" , errno);
+            exit(EXIT_FAILURE);
         }
 
+        pfds[0].fd = socketFD; // Client socket.
+        pfds[0].events = POLLIN; // Report when ready to read on incoming connection.
+        pfds[1].fd = STDIN_FILENO; // Client socket.
+        pfds[1].events = POLLOUT; // Report when ready to send to the socket.
 
+        while (true) {
+            // Call poll and see how events occurred.
+            int poll_count = poll(pfds, NUM_OF_FD, -1);
+            if (poll_count == -1) {
+                printf("(-) poll() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE);
+            }
+
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            if (pfds[0].revents & POLLIN) {
+                // Reset buffer.
+                bzero(buffer, SIZE);
+                // Receive message on the socket.
+                int nbytes = recv(pfds[0].fd, buffer, SIZE, 0);
+                if (nbytes == 0) {
+                    printf("(-) Server hung up.\n");
+                } else if (nbytes == -1) {
+                    printf("(-) recv() failed with error code: %d\n", errno);
+                }
+                // Print client message.
+                printf("\033Message: \031[0m %s\n", buffer);
+                // Close fd.
+                close(pfds[0].fd);
+            }
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            else if (pfds[1].revents & POLLOUT) {
+                // Reset buffer.
+                bzero(buffer, SIZE);
+                // Get message from standard input.
+                fgets(buffer, SIZE + 1, stdin);
+                // Send message to the client.
+                send(socketFD, buffer, strlen(buffer), 0);
+                // Close fd.
+                close(pfds[1].fd);
+            }
+        }
     }
-    //------------------------------- SERVER HANDLING ------------------------------------
-    else{
-        char buffer[SIZE + 1]; // Global array for holding the message. His size is SIZE + 1 for the \0.
+
+    //------------------------------- Server Side ------------------------------------
+    else if (!strcmp(argv[1], "-s")) {
+        printf("s");
+        // Not the right format.
+        if (argc < 3){
+            printf("(-) Not the right format.\n");
+            exit(EXIT_FAILURE);
+        }
+        printf("You are the server!\n");
+
+        // Creates TCP socket.
+        int socketFD = socket(AF_INET, SOCK_STREAM, 0);
+
         // Check if address is already in use.
         int enableReuse = 1;
         if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(enableReuse)) ==  -1)  {
-            printf("setsockopt() failed with error code: %d\n" , errno);
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            printf("(-) setsockopt() failed with error code: %d\n" , errno);
+            exit(EXIT_FAILURE);
         }
-        // Assign port and address to "serverAddress".
+
+        // Initialize variables.
+        char buffer[SIZE + 1] = {0}; // size + 1 for the \0.
+        struct sockaddr_in serverAddress;
+        memset(&serverAddress, '\0', sizeof(serverAddress));
+
+        // Initialize port.
+        int port = atoi(argv[2]);
+
+        // Assign port and address to "clientAddress".
         serverAddress.sin_family = AF_INET;
         serverAddress.sin_port = htons(port); // Short, network byte order.
         serverAddress.sin_addr.s_addr = INADDR_ANY;
@@ -161,18 +194,18 @@ int main(int argc, char* argv[]){
         // Binding port and address to socket and check if binding was successful.
         if (bind(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
             printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
-            close(socketFD); // close the socket.
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            close(socketFD);
+            exit(EXIT_FAILURE);
         }
         else {
             printf("(=) Binding was successful!\n");
         }
 
         // Make server start listening and waiting, and check if listen() was successful.
-        if (listen(socketFD, 1) == -1) { // We allow no more than one queue connections requests.
+        if (listen(socketFD, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
             printf("Failed to start listening! -> listen() failed with error code : %d\n", errno);
-            close(socketFD); // close the socket.
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            close(socketFD);
+            exit(EXIT_FAILURE);
         }
         printf("(=) Waiting for incoming TCP-connections...\n");
 
@@ -186,28 +219,59 @@ int main(int argc, char* argv[]){
             printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
             close(socketFD);
             close(clientSocket);
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            exit(EXIT_FAILURE);
         }
         else {
             printf("(=) Connection established.\n\n");
         }
 
-        //----------------------------------Receive Messages---------------------------------
-        if (recv_message(clientSocket, buffer) == -1) {
-            return -1;
-        }
-        printf("client: ");
-        puts(buffer);
-        bzero(buffer, SIZE + 1); // Clean buffer.
-
-        //----------------------------------SEND RESPONSE------------------------------------
-        char answer[256] = "Got the message succesfully."; // Array for server response.
-        if (send(clientSocket, answer, strlen(answer), 0) == -1) { // Send response to client.
-            printf("(-) Failed to send answer! -> send() failed with error code: %d\n", errno);
-        }
-        else {
-            printf("(+) Sent answer.\n");
+        // Create polled to check which fd have current events.
+        struct pollfd *pfds = malloc(sizeof *pfds * NUM_OF_FD);
+        if (!pfds) {
+            printf("(-) Failed to allocate memory for poll. %d\n" , errno);
+            exit(EXIT_FAILURE);
         }
 
-    }   
+        pfds[0].fd = clientSocket; // Client socket.
+        pfds[0].events = POLLIN; // Report when ready to read on incoming connection.
+        pfds[1].fd = STDIN_FILENO; // Client socket.
+        pfds[1].events = POLLOUT; // Report when ready to send to the socket.
+
+        while (true) {
+            // Call poll and see how events occurred.
+            int poll_count = poll(pfds, NUM_OF_FD, -1);
+            if (poll_count == -1) {
+                printf("(-) poll() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE);
+            }
+
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            if (pfds[0].revents & POLLIN) {
+                // Reset buffer.
+                bzero(buffer, SIZE);
+                // Receive message on the socket.
+                int nbytes = recv(pfds[0].fd, buffer, SIZE, 0);
+                if (nbytes == 0) {
+                    printf("(-) Client hung up\n");
+                } else if (nbytes == -1) {
+                    printf("(-) recv() failed with error code: %d\n", errno);
+                }
+                // Print client message.
+                printf("\033Message: \031[0m %s\n", buffer);
+                // Close fd.
+                close(pfds[0].fd);
+            }
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            else if (pfds[1].revents & POLLOUT) {
+                // Reset buffer.
+                bzero(buffer, SIZE);
+                // Get message from standard input.
+                fgets(buffer, SIZE + 1, stdin);
+                // Send message to the client.
+                send(clientSocket, buffer, strlen(buffer), 0);
+                // Close fd.
+                close(pfds[1].fd);
+            }
+        }
+    }
 }
