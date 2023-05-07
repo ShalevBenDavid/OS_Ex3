@@ -11,48 +11,13 @@
 #include <time.h>
 #include <poll.h>
 
-#define SIZE 100000000 // 100 MB.
+#define SIZE 2048 // 2 MB.
 #define MAX_CONNECTIONS 1 // Allowing only one connection.
 #define NUM_OF_FD 2 // Number of file descriptors we monitor in poll().
-
-size_t send_message(char* ,int);
-
-size_t send_message(char* message ,int socketFD){
-    size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
-    while (totalLengthSent < SIZE) {
-        ssize_t bytes = send(socketFD, message + totalLengthSent, SIZE - totalLengthSent, 0);
-        if (bytes == -1) {
-            return -1;
-        }
-        totalLengthSent += bytes;
-    }
-    return EXIT_SUCCESS;
-}
-
-int recv_message(int clientSocket, char* buffer) {
-    size_t receivedTotalBytes = 0; // Variable for keeping track of number of received bytes.
-
-    //----------------------------------Receive Half Loop---------------------------------
-    while (receivedTotalBytes != SIZE) {
-        bzero(buffer, SIZE + 1); // Clean buffer.
-        ssize_t receivedBytes = recv(clientSocket, buffer, SIZE - receivedTotalBytes, 0);
-        if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
-            printf("(-) Error in receiving data or peer closed half side of the socket.");
-            break;
-        }
-        receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
-        // Check if we need to exit.
-        if (strcmp(buffer, "exit") == 0) {
-            return -1;
-        }
-    }
-    return -1;
-}
 
 int main(int argc, char* argv[]){
     //---------------------------------- Client Side ---------------------------------
     if (!strcmp(argv[1], "-c")) {
-        printf("c");
         // Not the right format.
         if(argc < 4){
             printf("(-) Not the right format.\n");
@@ -115,10 +80,10 @@ int main(int argc, char* argv[]){
             exit(EXIT_FAILURE);
         }
 
-        pfds[0].fd = socketFD; // Client socket.
-        pfds[0].events = POLLIN; // Report when ready to read on incoming connection.
-        pfds[1].fd = STDIN_FILENO; // Client socket.
-        pfds[1].events = POLLOUT; // Report when ready to send to the socket.
+        pfds[0].fd = STDIN_FILENO; 
+        pfds[0].events = POLLIN; 
+        pfds[1].fd = socketFD; 
+        pfds[1].events = POLLIN; 
 
         while (true) {
             // Call poll and see how events occurred.
@@ -128,39 +93,40 @@ int main(int argc, char* argv[]){
                 exit(EXIT_FAILURE);
             }
 
-            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
             if (pfds[0].revents & POLLIN) {
                 // Reset buffer.
                 bzero(buffer, SIZE);
+                // Get message from standard input.
+                fgets(buffer, SIZE + 1, stdin);
+                // Send message to the client.
+                int sbytes = send(socketFD, buffer, strlen(buffer), 0);
+                if(sbytes < 0){
+                    printf("(-) send() failed with error code: %d\n", errno);
+                }
+                bzero(buffer,SIZE);
+            }
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            else if (pfds[1].revents & POLLIN) {
+                // Reset buffer.
+                bzero(buffer, SIZE);
                 // Receive message on the socket.
-                int nbytes = recv(pfds[0].fd, buffer, SIZE, 0);
+                int nbytes = recv(socketFD, buffer, SIZE, 0);
                 if (nbytes == 0) {
                     printf("(-) Server hung up.\n");
                 } else if (nbytes == -1) {
                     printf("(-) recv() failed with error code: %d\n", errno);
                 }
                 // Print client message.
-                printf("\033Message: \031[0m %s\n", buffer);
-                // Close fd.
-                close(pfds[0].fd);
-            }
-            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
-            else if (pfds[1].revents & POLLOUT) {
-                // Reset buffer.
-                bzero(buffer, SIZE);
-                // Get message from standard input.
-                fgets(buffer, SIZE + 1, stdin);
-                // Send message to the client.
-                send(socketFD, buffer, strlen(buffer), 0);
-                // Close fd.
-                close(pfds[1].fd);
+                printf("Message: %s\n", buffer);
+                
             }
         }
     }
 
     //------------------------------- Server Side ------------------------------------
     else if (!strcmp(argv[1], "-s")) {
-        printf("s");
         // Not the right format.
         if (argc < 3){
             printf("(-) Not the right format.\n");
@@ -232,10 +198,10 @@ int main(int argc, char* argv[]){
             exit(EXIT_FAILURE);
         }
 
-        pfds[0].fd = clientSocket; // Client socket.
-        pfds[0].events = POLLIN; // Report when ready to read on incoming connection.
-        pfds[1].fd = STDIN_FILENO; // Client socket.
-        pfds[1].events = POLLOUT; // Report when ready to send to the socket.
+        pfds[0].fd = STDIN_FILENO; // Client socket.
+        pfds[0].events = POLLIN; 
+        pfds[1].fd = clientSocket; // Client socket.
+        pfds[1].events = POLLIN; 
 
         while (true) {
             // Call poll and see how events occurred.
@@ -245,32 +211,31 @@ int main(int argc, char* argv[]){
                 exit(EXIT_FAILURE);
             }
 
-            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
             if (pfds[0].revents & POLLIN) {
+                 // Reset buffer.
+                bzero(buffer, SIZE);
+                // Get message from standard input.
+                fgets(buffer, SIZE + 1, stdin);
+                // Send message to the client.
+                int sbytes = send(clientSocket, buffer, strlen(buffer), 0);
+                if(sbytes < 0){
+                    printf("(-) send() failed with error code: %d\n", errno);
+                }
+            }
+            // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
+            else if (pfds[1].revents & POLLIN) {
                 // Reset buffer.
                 bzero(buffer, SIZE);
                 // Receive message on the socket.
-                int nbytes = recv(pfds[0].fd, buffer, SIZE, 0);
+                int nbytes = recv(clientSocket, buffer, SIZE, 0);
                 if (nbytes == 0) {
                     printf("(-) Client hung up\n");
                 } else if (nbytes == -1) {
                     printf("(-) recv() failed with error code: %d\n", errno);
                 }
                 // Print client message.
-                printf("\033Message: \031[0m %s\n", buffer);
-                // Close fd.
-                close(pfds[0].fd);
-            }
-            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
-            else if (pfds[1].revents & POLLOUT) {
-                // Reset buffer.
-                bzero(buffer, SIZE);
-                // Get message from standard input.
-                fgets(buffer, SIZE + 1, stdin);
-                // Send message to the client.
-                send(clientSocket, buffer, strlen(buffer), 0);
-                // Close fd.
-                close(pfds[1].fd);
+                printf("Message: %s\n", buffer);
             }
         }
     }
