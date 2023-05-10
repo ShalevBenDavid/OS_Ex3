@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <time.h>
+#include <sys/time.h>
 #include <poll.h>
 #include <stdbool.h>
 
@@ -29,6 +30,10 @@ unsigned char* generateData (int size);
 bool check_checksums (unsigned char*, unsigned char*);
 void print_server_usage ();
 void print_client_usage ();
+size_t send_data(unsigned char[], int);
+int recv_data(int );
+
+
 
 
 
@@ -50,8 +55,8 @@ int main(int argc, char* argv[]){
         if (!strcmp(argv[i], "mmap")) { types[2] = true; }
         if (!strcmp(argv[i], "pipe")) { types[3] = true; }
         if (!strcmp(argv[i], "uds")) { types[4] = true; }
-        if (!strcmp(argv[i], "udp")) { params[0] = true; }
-        if (!strcmp(argv[i], "tcp")) { params[1] = true; }
+        if (!strcmp(argv[i], "tcp")) { params[0] = true; }
+        if (!strcmp(argv[i], "udp")) { params[1] = true; }
         if (!strcmp(argv[i], "dgram")) { params[2] = true; }
         if (!strcmp(argv[i], "stream")) { params[3] = true; }
     }
@@ -311,11 +316,16 @@ void handle_client_performance (int argc, char* argv[], bool types[], bool param
     // Generate 100MB of data.
     unsigned char* buffer = generateData(BUFFER_SIZE);
 
+    // Create tme parameters.
+    // struct timeval start, end; 
+
     // Initialize variables for server.
     struct sockaddr_in serverAddress;
 
     // Initialize port.
     int port = atoi(argv[3]);
+    char* address = argv[2];
+    
 
     // Resting address.
     memset(&serverAddress, 0, sizeof(serverAddress));
@@ -335,17 +345,93 @@ void handle_client_performance (int argc, char* argv[], bool types[], bool param
     if (socketFD == -1) {
         printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
         exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
-    }
-    else {
+    } else {
         printf("(=) UDP Socket created successfully.\n");
     }
     // Sending the <type> and <param>.
     int sbytes1 = sendto(socketFD, argv[5], strlen(argv[5]), 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
+    sleep(1);
     int sbytes2 = sendto(socketFD, argv[6], strlen(argv[6]), 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
-    if (sbytes1 || sbytes2 == -1) {
+    if (sbytes1 == -1 || sbytes2 == -1) {
         printf("(-) sendto() failed with error code: %d\n", errno);
         exit(EXIT_FAILURE);
     }
+    printf("(+) Sent connection type successfully.\n");
+
+    // <<<<<<<<<<<<<<<<<<<<<<<<< Handeling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
+    sleep(1);
+    //  IPv4 && TCP
+    if(types[0] && params[0]){
+        //-------------------------------Create TCP Connection-----------------------------
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+        // Check if we were successful in creating socket.
+        if(sock == -1) {
+            printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE); 
+        }
+        else {
+            printf("(=) Socket created successfully.\n");
+        }
+
+        // Clean the server address we already created earlier.
+        memset(&serverAddress, '\0', sizeof(serverAddress));
+
+        // Assign port and address to "serverAddress".
+        serverAddress.sin_family = AF_INET;
+        serverAddress.sin_port = htons(port); // Short, network byte order.
+        serverAddress.sin_addr.s_addr = inet_addr(address);
+
+        // Convert address to binary.
+        if (inet_pton(AF_INET, address, &serverAddress.sin_addr) <= 0)
+        {
+            printf("(-) Failed to convert IPv4 address to binary! -> inet_pton() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+
+        //Create connection with server.
+        int connection = connect(sock, (struct sockaddr*) &serverAddress, sizeof(serverAddress));
+
+        // Check if we were successful in connecting with server.
+        if(connection == -1) {
+            printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE); // Exit program and return// EXIT_FAILURE (defined as 1 in stdlib.h).
+        }
+        else {
+            printf("(=) Connection with server established.\n\n");
+        }
+
+        // Sending the data and calculating time.
+        int choice;
+        while(true){
+            if(send_data(buffer, sock) == -1){
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+
+            // User decision.
+            printf("Do you want to send file? Enter Y for Yes or N for No.\n"); 
+            while((choice = getchar()) == '\n' || getchar() == EOF);
+            if (choice == 'N' || choice == 'n') {
+                send(sock, "exit", 4, 0); // Send exit message to the server.
+                break;
+            }
+            printf("-----------------------------------------------------------------\n");
+        }
+        printf("(=) Exiting...\n");
+        //-------------------------------Close Connection-----------------------------
+        if(close(sock) == -1) {
+            printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+        }
+        else {
+            printf("(=) Connection closed!\n");
+        }
+
+    }
+
+
+    
     
     
 }
@@ -353,33 +439,45 @@ void handle_client_performance (int argc, char* argv[], bool types[], bool param
 //---------------------------------- Server Side - Performance Mode ---------------------------------
 void handle_server_performance (int argc, char* argv[], bool q_flag) {
 // Not the right format.
-    if (argc < 3) {
+    if (argc < 4) {
         print_server_usage();
         exit(EXIT_FAILURE);
     }
 
-    // Creates TCP socket.
-    int socketFD = socket(AF_INET, SOCK_STREAM, 0);
+    // Setting buffers to hold <type> and <param> from client. Plus 1 for both for /0.
+    char type[5] = {0};
+    char param[7] = {0};
 
-    // Check if address is already in use.
-    int enableReuse = 1;
-    if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(enableReuse)) == -1) {
-        printf("(-) setsockopt() failed with error code: %d\n", errno);
-        exit(EXIT_FAILURE);
-    }
-
-    // Initialize variables.
-    char buffer[SIZE + 1] = {0}; // size + 1 for the \0.
-    struct sockaddr_in serverAddress;
-    memset(&serverAddress, '\0', sizeof(serverAddress));
+    // Initialize variables for server.
+    struct sockaddr_in serverAddress, clientAddress;
 
     // Initialize port.
     int port = atoi(argv[2]);
 
-    // Assign port and address to "clientAddress".
+    // Resting address.
+    memset(&serverAddress, 0, sizeof(serverAddress));
+    // Setting address to be IPv4.
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(port); // Short, network byte order.
+    // Setting the port.
+    serverAddress.sin_port = htons(port);
+    // Allow everyone to connect.
     serverAddress.sin_addr.s_addr = INADDR_ANY;
+
+    // Creates UDP socket.
+    int socketFD = socket(AF_INET, SOCK_DGRAM, 0);
+    // Check if we were successful in creating socket.
+    if (socketFD == -1) {
+        printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+        exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+    } else {
+        printf("(=) UDP Socket created successfully.\n");
+    }
+
+    int reuse = 1;
+    if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+        perror("(-) Failed to set SO_REUSEADDR option");
+        exit(EXIT_FAILURE);
+    }
 
     // Binding port and address to socket and check if binding was successful.
     if (bind(socketFD, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
@@ -387,79 +485,80 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
         close(socketFD);
         exit(EXIT_FAILURE);
     } else {
-        printf("(=) Binding was successful!\n");
+        printf("(=) UDP Binding was successful\n");
     }
 
-    // Make server start listening and waiting, and check if listen() was successful.
-    if (listen(socketFD, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
-        printf("Failed to start listening! -> listen() failed with error code : %d\n", errno);
-        close(socketFD);
-        exit(EXIT_FAILURE);
+    // Receiving <type> and <param> from client.
+    int rbytes1 = recvfrom(socketFD, type, 4, 0, NULL, NULL);
+    int rbytes2 = recvfrom(socketFD, param, 6, 0, NULL, NULL);
+    if(rbytes1 == -1 || rbytes2 == -1){
+        printf("(-) recv() failed with error code: %d\n", errno);
     }
-    while (true) {
-        printf("(=) Waiting for incoming TCP-connections...\n");
 
-        // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
-        struct sockaddr_in clientAddress;
-        memset(&clientAddress, 0, sizeof(clientAddress));
-        unsigned int clientAddressLen = sizeof(clientAddress);
-        // Accept connection.
-        int clientSocket = accept(socketFD, (struct sockaddr *) &clientAddress, &clientAddressLen);
-        if (clientSocket == -1) {
-            printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
-            close(socketFD);
-            close(clientSocket);
+    // <<<<<<<<<<<<<<<<<<<<<<<<< Handeling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
+
+    //  IPv4 && TCP
+    if((strcmp(type,"ipv4") == 0) && (strcmp(param,"tcp") == 0)){
+        // Creates TCP socket.
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+        // Check if address is already in use.
+        int enableReuse = 1;
+        if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(enableReuse)) == -1) {
+            printf("(-) setsockopt() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+
+        // Initialize variables.
+        struct sockaddr_in serverAddress;
+        memset(&serverAddress, '\0', sizeof(serverAddress));
+
+        // Initialize port.
+        int port = atoi(argv[2]);
+
+        // Assign port and address to "clientAddress".
+        serverAddress.sin_family = AF_INET;
+        serverAddress.sin_port = htons(port); // Short, network byte order.
+        serverAddress.sin_addr.s_addr = INADDR_ANY;
+
+        // Binding port and address to socket and check if binding was successful.
+        if (bind(sock, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
+            printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
+            close(sock);
             exit(EXIT_FAILURE);
         } else {
-            printf("(=) Connection established.\n\n");
+            printf("(=) Binding was successful!\n");
         }
 
-        // Create polled to check which fd have current events.
-        struct pollfd *pfds = malloc(sizeof *pfds * NUM_OF_FD);
-        if (!pfds) {
-            printf("(-) Failed to allocate memory for poll. %d\n", errno);
+        // Make server start listening and waiting, and check if listen() was successful.
+        if (listen(sock, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
+            printf("Failed to start listening! -> listen() failed with error code : %d\n", errno);
+            close(sock);
             exit(EXIT_FAILURE);
         }
-
-        pfds[0].fd = STDIN_FILENO; // Client socket.
-        pfds[0].events = POLLIN;
-        pfds[1].fd = clientSocket; // Client socket.
-        pfds[1].events = POLLIN;
-
         while (true) {
-            // Call poll and see how events occurred.
-            int poll_count = poll(pfds, NUM_OF_FD, -1);
-            if (poll_count == -1) {
-                printf("(-) poll() failed with error code: %d\n", errno);
-                exit(EXIT_FAILURE);
-            }
+            printf("(=) Waiting for incoming TCP-connections...\n");
 
-            // <<<<<<<<<<<<<<<<<<<<<<<<< Send To Socket >>>>>>>>>>>>>>>>>>>>>>>>>
-            if (pfds[0].revents & POLLIN) {
-                // Reset buffer.
-                bzero(buffer, SIZE);
-                // Get message from standard input.
-                fgets(buffer, SIZE + 1, stdin);
-                // Send message to the client.
-                int sbytes = send(clientSocket, buffer, strlen(buffer), 0);
-                if (sbytes < 0) {
-                    printf("(-) send() failed with error code: %d\n", errno);
-                }
+            // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
+            struct sockaddr_in clientAddress;
+            memset(&clientAddress, 0, sizeof(clientAddress));
+            unsigned int clientAddressLen = sizeof(clientAddress);
+            // Accept connection.
+            int clientSocket = accept(sock, (struct sockaddr *) &clientAddress, &clientAddressLen);
+            if (clientSocket == -1) {
+                printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
+                close(sock);
+                close(clientSocket);
+                exit(EXIT_FAILURE);
+            } else {
+                printf("(=) Connection established.\n\n");
             }
-                // <<<<<<<<<<<<<<<<<<<<<<<<< Read From Socket >>>>>>>>>>>>>>>>>>>>>>>>>
-            else if (pfds[1].revents & POLLIN) {
-                // Reset buffer.
-                bzero(buffer, SIZE);
-                // Receive message on the socket.
-                int nbytes = recv(clientSocket, buffer, SIZE, 0);
-                if (nbytes == 0) {
-                    printf("(-) Client hung up\n");
+            // While the user still wants to send file, keep receiving.
+            while(true) {
+                if(recv_data(clientSocket) == -1){
+                    printf("\nExiting...\n\n");
                     break;
-                } else if (nbytes == -1) {
-                    printf("(-) recv() failed with error code: %d\n", errno);
                 }
-                // Print client message.
-                printf("Message: %s", buffer);
             }
         }
     }
@@ -522,5 +621,40 @@ void print_client_usage() {
     printf("(-) The usage is \"stnc -c IP PORT -p (p for performance test) <type> <param>\"\n");
 }
 
+//---------------------------------- Sending Data-----------------------------------------
+size_t send_data(unsigned char data[], int socketFD) {
+    size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
+    while (totalLengthSent < BUFFER_SIZE) {
+        ssize_t bytes = send(socketFD, data + totalLengthSent, BUFFER_SIZE, 0);
+        if (bytes == -1) {
+            return -1;
+        }
+        totalLengthSent += bytes;
+    }
+    return 1;
+}
+
+//---------------------------------- Receiving Data-----------------------------------------
+int recv_data(int clientSocket) {
+    unsigned char buffer[BUFFER_SIZE+1] = {0};
+    size_t receivedTotalBytes = 0; // Variable for keeping track of number of received bytes.
+    while (receivedTotalBytes != BUFFER_SIZE) {
+        bzero(buffer, BUFFER_SIZE + 1); // Clean buffer.
+        ssize_t receivedBytes = recv(clientSocket, buffer, BUFFER_SIZE - receivedTotalBytes, 0);
+        if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
+            printf("(-) Error in receiving data or peer closed half side of the socket.");
+            break;
+        }
+        receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+
+        // Check if we need to exit.
+        if (strcmp(buffer, "exit") == 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+    
 
 
