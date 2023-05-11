@@ -28,11 +28,11 @@ void handle_client_performance (int, char*[], const bool[], const bool[], char*)
 void handle_server_performance (int, char*[], bool);
 void md5_checksum (unsigned char*, int, unsigned char*);
 unsigned char* generateData (int size);
-void check_checksums (const unsigned char*, const unsigned char*);
+void check_checksums (const unsigned char*, const unsigned char*, bool);
 void print_server_usage ();
 void print_client_usage ();
 int send_data (unsigned char[], int);
-void recv_data (int, char*, char*, unsigned char*);
+void recv_data (int, char*, char*, unsigned char*, bool);
 
 int main(int argc, char* argv[]){
     // Define flags to indicate execute usage.
@@ -419,7 +419,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
 void handle_server_performance (int argc, char* argv[], bool q_flag) {
     // Not the right format.
     if (argc > 5) {
-        if (!q_flag) { print_server_usage() };
+        print_server_usage();
         exit(EXIT_FAILURE);
     }
 
@@ -431,7 +431,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
     struct sockaddr_in serverAddress, clientAddress;
     unsigned char* buffer = (unsigned char*) calloc ((BUFFER_SIZE + MD5_DIGEST_LENGTH), sizeof(char));
     if (!buffer) {
-        if (!q_flag) { printf("(-) Memory allocation failed!\n") };
+        if (!q_flag) { printf("(-) Memory allocation failed!\n"); }
         exit(EXIT_FAILURE);
     }
     unsigned char checksum[MD5_DIGEST_LENGTH] = {0};
@@ -452,32 +452,32 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
     int socketFD = socket(AF_INET, SOCK_DGRAM, 0);
     // Check if we were successful in creating socket.
     if (socketFD == -1) {
-        printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+        if (!q_flag) { printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno); }
         exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
     } else {
-        printf("(=) UDP Socket created successfully.\n");
+        if (!q_flag) { printf("(=) UDP Socket created successfully.\n"); }
     }
 
     int reuse = 1;
     if (setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        perror("(-) Failed to set SO_REUSEADDR option");
+        if (!q_flag) { perror("(-) Failed to set SO_REUSEADDR option.\n"); }
         exit(EXIT_FAILURE);
     }
 
     // Binding port and address to socket and check if binding was successful.
     if (bind(socketFD, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
-        printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
+        if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
         close(socketFD);
         exit(EXIT_FAILURE);
     } else {
-        printf("(=) UDP Binding was successful\n");
+        if (!q_flag) { printf("(=) UDP Binding was successful\n"); }
     }
 
     // Receiving <type> and <param> from client.
     ssize_t rbytes1 = recvfrom(socketFD, type, TYPE_LEN, 0, NULL, NULL);
     ssize_t rbytes2 = recvfrom(socketFD, param, PARAM_LEN, 0, NULL, NULL);
     if (rbytes1 == -1 || rbytes2 == -1) {
-        printf("(-) recv() failed with error code: %d\n", errno);
+        if (!q_flag) { printf("(-) recv() failed with error code: %d\n", errno); }
     }
 
     // Close socketFD.
@@ -494,27 +494,27 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
             // Check if address is already in use.
             int enableReuse = 1;
             if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(enableReuse)) == -1) {
-                printf("(-) setsockopt() failed with error code: %d\n", errno);
+                if (!q_flag) { printf("(-) setsockopt() failed with error code: %d\n", errno); }
                 exit(EXIT_FAILURE);
             }
 
             // Binding port and address to socket and check if binding was successful.
             if (bind(sock, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
-                printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
+                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
                 close(sock);
                 exit(EXIT_FAILURE);
             } else {
-                printf("(=) Binding was successful!\n");
+                if (!q_flag) { printf("(=) Binding was successful!\n"); }
             }
 
             // Make server start listening and waiting, and check if listen() was successful.
             if (listen(sock, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
-                printf("Failed to start listening! -> listen() failed with error code : %d\n", errno);
+                if (!q_flag) { printf("Failed to start listening! -> listen() failed with error code : %d\n", errno); }
                 close(sock);
                 exit(EXIT_FAILURE);
             }
             while (true) {
-                printf("(=) Waiting for incoming TCP IPv4-connections...\n");
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
 
                 // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
                 memset(&clientAddress, 0, sizeof(clientAddress));
@@ -522,20 +522,20 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 // Accept connection.
                 int clientSocket = accept(sock, (struct sockaddr *) &clientAddress, &clientAddressLen);
                 if (clientSocket == -1) {
-                    printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
+                    if (!q_flag) { printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno); }
                     close(sock);
                     close(clientSocket);
                     exit(EXIT_FAILURE);
                 } else {
-                    printf("(=) Connection established.\n\n");
+                    if (!q_flag) { printf("(=) Connection established.\n\n"); }
                 }
 
                 // Receive data from the user.
-                recv_data(clientSocket, type, param, buffer);
+                recv_data(clientSocket, type, param, buffer, q_flag);
                 // Do a checksum in server side.
                 md5_checksum(buffer, BUFFER_SIZE, checksum);
                 // Compare the checksums.
-                check_checksums(checksum, buffer + BUFFER_SIZE);
+                check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
             }
         }
     }
@@ -580,14 +580,14 @@ unsigned char* generateData (int size) {
 }
 
 //---------------------------------- Compare Checksums ---------------------------------
-void check_checksums(const unsigned char* checksum1, const unsigned char* checksum2) {
+void check_checksums(const unsigned char* checksum1, const unsigned char* checksum2, bool q_flag) {
     for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
         if (checksum1[i] != checksum2[i]) {
-            printf("(-) Error: Some data has been lost!\n");
+            if (!q_flag) { printf("(-) Error: Some data has been lost!\n"); }
             return;
         }
     }
-    printf("(+) All data was successfully received.\n");
+    if (!q_flag) { printf("(+) All data was successfully received.\n"); }
 }
 
 //---------------------------------- Print Usages ---------------------------------------
@@ -613,7 +613,7 @@ int send_data(unsigned char data[], int socketFD) {
 }
 
 //---------------------------------- Receiving Data-----------------------------------------
-void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer) {
+void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer, bool q_flag) {
     // Initialize variables.
     size_t receivedTotalBytes = 0; // Variable for keeping track of number of received bytes.
     ssize_t receivedBytes = 0;
@@ -626,7 +626,7 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
         receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
                              BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
         if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
-            printf("(-) Error in receiving data or peer closed half side of the socket.");
+            if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket."); }
             break;
         }
         receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
