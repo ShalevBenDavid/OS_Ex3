@@ -18,7 +18,6 @@
 #define BUFFER_SIZE 104857600 // 100 MB.
 #define MAX_CONNECTIONS 1 // Allowing only one connection.
 #define NUM_OF_FD 2 // Number of file descriptors we monitor in poll().
-#define CHECKSUM_SIZE 16 // The size of the checksum header.
 #define PARAM_LEN 6 // Max parameter length.
 #define TYPE_LEN 4 // Max type length.
 
@@ -58,7 +57,7 @@ int main(int argc, char* argv[]){
         if (!strcmp(argv[i], "dgram")) { params[2] = true; }
         if (!strcmp(argv[i], "stream")) { params[3] = true; }
     }
-    if( (types[2] || types[3])) {
+    if ((types[2] || types[3])) {
         if (argc != 7 ) {
             print_server_usage();
             print_client_usage();
@@ -69,7 +68,7 @@ int main(int argc, char* argv[]){
     }
     if (is_client) {
         if (p_flag) { handle_client_performance(argc, argv, types, params, filename); }
-        else { handle_client(argc, argv);}
+        else { handle_client(argc, argv); }
     }
     else if (is_server) {
         if (p_flag) { handle_server_performance(argc, argv, q_flag); }
@@ -317,9 +316,6 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     // Generate 100MB of data.
     unsigned char* buffer = generateData(BUFFER_SIZE);
 
-    // Create tme parameters.
-    // struct timeval start, end; 
-
     // Initialize variables for server.
     struct sockaddr_in serverAddress;
 
@@ -350,13 +346,15 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     }
     // Sending the <type> and <param>.
     ssize_t sbytes1 = sendto(socketFD, argv[5], strlen(argv[5]), 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
-    sleep(1);
     ssize_t sbytes2 = sendto(socketFD, argv[6], strlen(argv[6]), 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
     if (sbytes1 == -1 || sbytes2 == -1) {
         printf("(-) sendto() failed with error code: %d\n", errno);
         exit(EXIT_FAILURE);
     }
-    printf("(+) Sent connection type successfully.\n");
+    printf("(+) Sent connection type (%s, %s) successfully.\n", argv[5], argv[6]);
+
+    // Close socket.
+    close(socketFD);
 
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     sleep(1);
@@ -421,7 +419,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
 void handle_server_performance (int argc, char* argv[], bool q_flag) {
     // Not the right format.
     if (argc > 5) {
-        print_server_usage();
+        if (!q_flag) { print_server_usage() };
         exit(EXIT_FAILURE);
     }
 
@@ -431,8 +429,12 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
     // Initialize variables for server.
     struct sockaddr_in serverAddress, clientAddress;
-    unsigned char buffer[BUFFER_SIZE + CHECKSUM_SIZE]; // Buffer to hold data.
-    unsigned char checksum[CHECKSUM_SIZE]; // To hold the server checksum.
+    unsigned char* buffer = (unsigned char*) calloc ((BUFFER_SIZE + MD5_DIGEST_LENGTH), sizeof(char));
+    if (!buffer) {
+        if (!q_flag) { printf("(-) Memory allocation failed!\n") };
+        exit(EXIT_FAILURE);
+    }
+    unsigned char checksum[MD5_DIGEST_LENGTH] = {0};
 
     // Initialize port.
     int port = atoi(argv[2]);
@@ -474,13 +476,16 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
     // Receiving <type> and <param> from client.
     ssize_t rbytes1 = recvfrom(socketFD, type, TYPE_LEN, 0, NULL, NULL);
     ssize_t rbytes2 = recvfrom(socketFD, param, PARAM_LEN, 0, NULL, NULL);
-    if(rbytes1 == -1 || rbytes2 == -1){
+    if (rbytes1 == -1 || rbytes2 == -1) {
         printf("(-) recv() failed with error code: %d\n", errno);
     }
 
+    // Close socketFD.
+    close(socketFD);
+
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     //  TCP
-    if(!strcmp(param,"tcp")) {
+    if(!strcmp(param, "tcp")) {
         // IPv4
         if (!strcmp(type, "ipv4")) {
             // Creates TCP socket.
@@ -555,17 +560,16 @@ unsigned char* generateData (int size) {
         return NULL;
     }
 
-    result = (unsigned char*)malloc((size + CHECKSUM_SIZE) * sizeof(char));
-
-    // iI malloc failed return NULL.
-    if(!result) {
+    result = (unsigned char*) calloc((size + MD5_DIGEST_LENGTH), sizeof(char));
+    // iI calloc failed return NULL.
+    if (!result) {
         return NULL;
     }
 
     // Randomize data.
     srand(time(NULL));
     for (int i = 0; i < size; i++) {
-        result[i] = ((char)rand() % 256);
+        result[i] = ((char) rand() % 256);
     }
 
     // Call checksum.
@@ -577,12 +581,13 @@ unsigned char* generateData (int size) {
 
 //---------------------------------- Compare Checksums ---------------------------------
 void check_checksums(const unsigned char* checksum1, const unsigned char* checksum2) {
-    for (int i = 0; i < CHECKSUM_SIZE; i++) {
+    for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
         if (checksum1[i] != checksum2[i]) {
-            printf("(-) Error: Some data has been lost!");
+            printf("(-) Error: Some data has been lost!\n");
+            return;
         }
     }
-    printf("(+) All data was successfully received.");
+    printf("(+) All data was successfully received.\n");
 }
 
 //---------------------------------- Print Usages ---------------------------------------
@@ -596,8 +601,9 @@ void print_client_usage() {
 //---------------------------------- Sending Data-----------------------------------------
 int send_data(unsigned char data[], int socketFD) {
     size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
-    while (totalLengthSent < BUFFER_SIZE) {
-        ssize_t bytes = send(socketFD, data + totalLengthSent, BUFFER_SIZE, 0);
+    while (totalLengthSent < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
+        ssize_t bytes = send(socketFD, data + totalLengthSent,
+                             BUFFER_SIZE + MD5_DIGEST_LENGTH - totalLengthSent, 0);
         if (bytes == -1) {
             return -1;
         }
@@ -616,7 +622,9 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
     clock_t start = clock();
 
     // While there is still data to receive.
-    while ((receivedBytes = recv(clientSocket, buffer, BUFFER_SIZE - receivedTotalBytes, 0)) > 0) {
+    while (receivedTotalBytes < BUFFER_SIZE + MD5_DIGEST_LENGTH ) {
+        receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
+                             BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
         if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
             printf("(-) Error in receiving data or peer closed half side of the socket.");
             break;
@@ -630,7 +638,7 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
     double duration = (double)(end - start) * 1000.0 / CLOCKS_PER_SEC;
 
     // Print stats.
-    printf("%s_%s,%f",type, param, duration);
+    printf("%s_%s,%f\n",type, param, duration);
 }
 
     
