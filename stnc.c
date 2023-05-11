@@ -13,6 +13,7 @@
 #include <sys/time.h>
 #include <poll.h>
 #include <stdbool.h>
+#include <sys/un.h>
 
 #define SIZE 2048 // Size of a chunk.
 #define BUFFER_SIZE 104857600 // 100 MB.
@@ -20,6 +21,7 @@
 #define NUM_OF_FD 2 // Number of file descriptors we monitor in poll().
 #define PARAM_LEN 6 // Max parameter length.
 #define TYPE_LEN 4 // Max type length.
+#define UDS_PATH "/tmp/uds_socket" // The path for UDS.
 
 // Methods.
 void handle_client (int, char*[]);
@@ -79,7 +81,7 @@ int main(int argc, char* argv[]){
         exit(EXIT_FAILURE);
     }
 
-    printf("(=) Exiting...\n");
+    if (!p_flag) { printf("(=) Exiting...\n"); }
     return EXIT_SUCCESS;
 }
 
@@ -370,17 +372,16 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
                 exit(EXIT_FAILURE);
             } else {
-                printf("(=) Socket created successfully.\n");
+                printf("(=) TCP Socket created successfully.\n");
             }
 
-            // Initialize variables for server.
             struct sockaddr_in serverAddress4;
             // Clean the server address we already created earlier.
             memset(&serverAddress4, '\0', sizeof(serverAddress4));
 
-            // Assign port and address to "serverAddress".
+            // Assign port and address family to "serverAddress4".
             serverAddress4.sin_family = AF_INET;
-            serverAddress4.sin_port = htons(port); // Short, network byte order.
+            serverAddress4.sin_port = htons(port);
 
             // Convert address to binary.
             if (inet_pton(AF_INET, address, &serverAddress4.sin_addr) <= 0) {
@@ -389,24 +390,24 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 exit(EXIT_FAILURE);
             }
 
-            //Create connection with server.
+            // Create connection with server.
             int connection = connect(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4));
 
             // Check if we were successful in connecting with server.
             if (connection == -1) {
                 printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
-                exit(EXIT_FAILURE); // Exit program and return// EXIT_FAILURE (defined as 1 in stdlib.h).
+                exit(EXIT_FAILURE); // Exit program.
             } else {
                 printf("(=) Connection with server established.\n\n");
             }
 
-            // Sending the data.
+            //------------------------------- Send Data -----------------------------
             if (send_data(buffer, sock) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
             }
-            //-------------------------------Close Connection-----------------------------
+            //------------------------------- Close Connection -----------------------------
             if (close(sock) == -1) {
                 printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
             } else {
@@ -423,17 +424,16 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
                 exit(EXIT_FAILURE);
             } else {
-                printf("(=) Socket created successfully.\n");
+                printf("(=) TCP Socket created successfully.\n");
             }
 
-            // Initialize variables for server.
             struct sockaddr_in6 serverAddress6;
             // Clean the server address we already created earlier.
             memset(&serverAddress6, '\0', sizeof(serverAddress6));
 
-            // Assign port and address to "serverAddress".
+            // Assign port and address family to "serverAddress6".
             serverAddress6.sin6_family = AF_INET6 ;
-            serverAddress6.sin6_port = htons(port); // Short, network byte order.
+            serverAddress6.sin6_port = htons(port);
 
             // Convert address to binary.
             if (inet_pton(AF_INET6, address, &serverAddress6.sin6_addr) <= 0) {
@@ -442,24 +442,77 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 exit(EXIT_FAILURE);
             }
 
-            //Create connection with server.
+            // Create connection with server.
             int connection = connect(sock, (struct sockaddr *) &serverAddress6, sizeof(serverAddress6));
 
             // Check if we were successful in connecting with server.
             if (connection == -1) {
                 printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
-                exit(EXIT_FAILURE); // Exit program and return// EXIT_FAILURE (defined as 1 in stdlib.h).
+                exit(EXIT_FAILURE); // Exit program.
             } else {
                 printf("(=) Connection with server established.\n\n");
             }
 
-            // Sending the data.
+            //------------------------------- Send Data -----------------------------
             if (send_data(buffer, sock) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
             }
-            //-------------------------------Close Connection-----------------------------
+            //------------------------------- Close Connection -----------------------------
+            if (close(sock) == -1) {
+                printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+            } else {
+                printf("(=) Connection closed!\n");
+            }
+        }
+    }
+    // UDS
+    if (types[4]) {
+        // Dgram
+        if (params[2]) {
+
+        }
+        // Stream
+        if (params[3]) {
+            //-------------------------------Create TCP Connection-----------------------------
+            int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+
+            // Check if we were successful in creating socket.
+            if (sock == -1) {
+                printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE);
+            } else {
+                printf("(=) Unix Socket created successfully.\n");
+            }
+
+            struct sockaddr_un serverAddressUNIX;
+            // Clean the server address we already created earlier.
+            memset(&serverAddressUNIX, '\0', sizeof(serverAddressUNIX));
+
+            // Assign address family to "serverAddressUNIX".
+            serverAddressUNIX.sun_family = AF_UNIX;
+            strcpy(serverAddressUNIX.sun_path, UDS_PATH);
+            unsigned long length = strlen(serverAddressUNIX.sun_path) + sizeof(serverAddressUNIX.sun_family);
+
+            // Create connection with server.
+            int connection = connect(sock, (struct sockaddr *) &serverAddressUNIX, length);
+
+            // Check if we were successful in connecting with server.
+            if (connection == -1) {
+                printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE); // Exit program.
+            } else {
+                printf("(=) Connection with server established.\n\n");
+            }
+
+            //------------------------------- Send Data -----------------------------
+            if (send_data(buffer, sock) == -1) {
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+            //------------------------------- Close Connection -----------------------------
             if (close(sock) == -1) {
                 printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
             } else {
@@ -483,7 +536,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
     // Initialize variables for server.
     struct sockaddr_in serverAddress;
-    unsigned char* buffer = (unsigned char*) calloc ((BUFFER_SIZE + MD5_DIGEST_LENGTH), sizeof(char));
+    unsigned char *buffer = (unsigned char *) calloc((BUFFER_SIZE + MD5_DIGEST_LENGTH), sizeof(char));
     if (!buffer) {
         if (!q_flag) { printf("(-) Memory allocation failed!\n"); }
         exit(EXIT_FAILURE);
@@ -520,7 +573,9 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
     // Binding port and address to socket and check if binding was successful.
     if (bind(socketFD, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
-        if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
+        if (!q_flag) {
+            printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
+        }
         close(socketFD);
         exit(EXIT_FAILURE);
     } else {
@@ -539,7 +594,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     //  TCP
-    if(!strcmp(param, "tcp")) {
+    if (!strcmp(param, "tcp")) {
         // IPv4
         if (!strcmp(type, "ipv4")) {
             // Creates TCP socket.
@@ -566,7 +621,10 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
             // Binding port and address to socket and check if binding was successful.
             if (bind(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4)) == -1) {
-                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
+                if (!q_flag) {
+                    printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n",
+                           errno);
+                }
                 close(sock);
                 exit(EXIT_FAILURE);
             } else {
@@ -588,7 +646,9 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 // Accept connection.
                 int clientSocket = accept(sock, (struct sockaddr *) &clientAddress4, &clientAddressLen);
                 if (clientSocket == -1) {
-                    if (!q_flag) { printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno); }
+                    if (!q_flag) {
+                        printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
+                    }
                     close(sock);
                     close(clientSocket);
                     exit(EXIT_FAILURE);
@@ -622,12 +682,76 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
             memset(&serverAddress6, '\0', sizeof(serverAddress6));
 
             // Assign port and address to "serverAddress6".
-            ((struct sockaddr_in6 *) &serverAddress6) -> sin6_family = AF_INET6;
-            ((struct sockaddr_in6*) &serverAddress6) -> sin6_port = htons(port);
-            ((struct sockaddr_in6*) &serverAddress6) -> sin6_addr = in6addr_any;
+            ((struct sockaddr_in6 *) &serverAddress6)->sin6_family = AF_INET6;
+            ((struct sockaddr_in6 *) &serverAddress6)->sin6_port = htons(port);
+            ((struct sockaddr_in6 *) &serverAddress6)->sin6_addr = in6addr_any;
 
             // Binding port and address to socket and check if binding was successful.
             if (bind(sock, (struct sockaddr *) &serverAddress6, sizeof(serverAddress6)) == -1) {
+                if (!q_flag) {
+                    printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n",
+                           errno);
+                }
+                close(sock);
+                exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(=) Binding was successful!\n"); }
+            }
+
+            // Make server start listening and waiting, and check if listen() was successful.
+            if (listen(sock, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
+                if (!q_flag) { printf("Failed to start listening! -> listen() failed with error code : %d\n", errno); }
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            while (true) {
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
+
+                // Create sockaddr_in for IPv6 for holding ip address and port of client and cleans it.
+                memset(&clientAddress6, 0, sizeof(clientAddress6));
+                unsigned int clientAddressLen = sizeof(clientAddress6);
+                // Accept connection.
+                int clientSocket = accept(sock, (struct sockaddr *) &clientAddress6, &clientAddressLen);
+                if (clientSocket == -1) {
+                    if (!q_flag) {
+                        printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
+                    }
+                    close(sock);
+                    close(clientSocket);
+                    exit(EXIT_FAILURE);
+                } else {
+                    if (!q_flag) { printf("(=) Connection established.\n\n"); }
+                }
+
+                // Receive data from the user.
+                recv_data(clientSocket, type, param, buffer, q_flag);
+                // Do a checksum in server side.
+                md5_checksum(buffer, BUFFER_SIZE, checksum);
+                // Compare the checksums.
+                check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+            }
+        }
+    }
+    //  UDS
+    if (!strcmp(type, "uds")) {
+        // Stream
+        if (!strcmp(param, "stream")) {
+            // Creates UDS socket.
+            int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+
+            // Initialize variables for server.
+            struct sockaddr_un serverAddressUNIX, clientAddressUNIX;
+
+            // Resting address.
+            memset(&serverAddressUNIX, 0, sizeof(serverAddressUNIX));
+            // Setting address family to be AF_UNIX.
+            serverAddressUNIX.sun_family = AF_UNIX;
+            strcpy(serverAddressUNIX.sun_path, UDS_PATH);
+            unlink(serverAddressUNIX.sun_path);
+            unsigned long length = strlen(serverAddressUNIX.sun_path) + sizeof(serverAddressUNIX.sun_family);
+
+            // Binding address to socket and check if binding was successful.
+            if (bind(sock, (struct sockaddr *) &serverAddressUNIX, length) == -1) {
                 if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
                 close(sock);
                 exit(EXIT_FAILURE);
@@ -645,12 +769,14 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
 
                 // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
-                memset(&clientAddress6, 0, sizeof(clientAddress6));
-                unsigned int clientAddressLen = sizeof(clientAddress6);
+                memset(&clientAddressUNIX, 0, sizeof(clientAddressUNIX));
+                unsigned int clientAddressLen = sizeof(clientAddressUNIX);
                 // Accept connection.
-                int clientSocket = accept(sock, (struct sockaddr *) &clientAddress6, &clientAddressLen);
+                int clientSocket = accept(sock, (struct sockaddr *) &clientAddressUNIX, &clientAddressLen);
                 if (clientSocket == -1) {
-                    if (!q_flag) { printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno); }
+                    if (!q_flag) {
+                        printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno);
+                    }
                     close(sock);
                     close(clientSocket);
                     exit(EXIT_FAILURE);
