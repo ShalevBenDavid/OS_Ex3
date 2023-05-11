@@ -381,7 +381,6 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             // Assign port and address to "serverAddress".
             serverAddress4.sin_family = AF_INET;
             serverAddress4.sin_port = htons(port); // Short, network byte order.
-            serverAddress4.sin_addr.s_addr = inet_addr(address);
 
             // Convert address to binary.
             if (inet_pton(AF_INET, address, &serverAddress4.sin_addr) <= 0) {
@@ -417,7 +416,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
         // IPv6
         if (types[1]) {
             //-------------------------------Create TCP Connection-----------------------------
-            int sock = socket(AF_INET, SOCK_STREAM, 0);
+            int sock = socket(AF_INET6, SOCK_STREAM, 0);
 
             // Check if we were successful in creating socket.
             if (sock == -1) {
@@ -438,7 +437,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
 
             // Convert address to binary.
             if (inet_pton(AF_INET6, address, &serverAddress6.sin6_addr) <= 0) {
-                printf("(-) Failed to convert IPv4 address to binary! -> inet_pton() failed with error code: %d\n",
+                printf("(-) Failed to convert IPv6 address to binary! -> inet_pton() failed with error code: %d\n",
                        errno);
                 exit(EXIT_FAILURE);
             }
@@ -483,7 +482,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
     char param[PARAM_LEN + 1] = {0};
 
     // Initialize variables for server.
-    struct sockaddr_in serverAddress, clientAddress;
+    struct sockaddr_in serverAddress;
     unsigned char* buffer = (unsigned char*) calloc ((BUFFER_SIZE + MD5_DIGEST_LENGTH), sizeof(char));
     if (!buffer) {
         if (!q_flag) { printf("(-) Memory allocation failed!\n"); }
@@ -553,8 +552,20 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 exit(EXIT_FAILURE);
             }
 
+            // Initialize variables for server.
+            struct sockaddr_in serverAddress4, clientAddress4;
+
+            // Resting address.
+            memset(&serverAddress4, 0, sizeof(serverAddress));
+            // Setting address to be IPv4.
+            serverAddress4.sin_family = AF_INET;
+            // Setting the port.
+            serverAddress4.sin_port = htons(port);
+            // Allow everyone to connect.
+            serverAddress4.sin_addr.s_addr = INADDR_ANY;
+
             // Binding port and address to socket and check if binding was successful.
-            if (bind(sock, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) == -1) {
+            if (bind(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4)) == -1) {
                 if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
                 close(sock);
                 exit(EXIT_FAILURE);
@@ -572,10 +583,72 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
 
                 // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
-                memset(&clientAddress, 0, sizeof(clientAddress));
-                unsigned int clientAddressLen = sizeof(clientAddress);
+                memset(&clientAddress4, 0, sizeof(clientAddress4));
+                unsigned int clientAddressLen = sizeof(clientAddress4);
                 // Accept connection.
-                int clientSocket = accept(sock, (struct sockaddr *) &clientAddress, &clientAddressLen);
+                int clientSocket = accept(sock, (struct sockaddr *) &clientAddress4, &clientAddressLen);
+                if (clientSocket == -1) {
+                    if (!q_flag) { printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno); }
+                    close(sock);
+                    close(clientSocket);
+                    exit(EXIT_FAILURE);
+                } else {
+                    if (!q_flag) { printf("(=) Connection established.\n\n"); }
+                }
+
+                // Receive data from the user.
+                recv_data(clientSocket, type, param, buffer, q_flag);
+                // Do a checksum in server side.
+                md5_checksum(buffer, BUFFER_SIZE, checksum);
+                // Compare the checksums.
+                check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+            }
+        }
+        // IPv6
+        if (!strcmp(type, "ipv6")) {
+            // Creates TCP socket.
+            int sock = socket(AF_INET6, SOCK_STREAM, 0);
+
+            // Check if address is already in use.
+            int enableReuse = 1;
+            if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(enableReuse)) == -1) {
+                if (!q_flag) { printf("(-) setsockopt() failed with error code: %d\n", errno); }
+                exit(EXIT_FAILURE);
+            }
+
+            // Initialize variables for server.
+            struct sockaddr_storage serverAddress6, clientAddress6;
+            // Clean the server address we already created earlier.
+            memset(&serverAddress6, '\0', sizeof(serverAddress6));
+
+            // Assign port and address to "serverAddress6".
+            ((struct sockaddr_in6 *) &serverAddress6) -> sin6_family = AF_INET6;
+            ((struct sockaddr_in6*) &serverAddress6) -> sin6_port = htons(port);
+            ((struct sockaddr_in6*) &serverAddress6) -> sin6_addr = in6addr_any;
+
+            // Binding port and address to socket and check if binding was successful.
+            if (bind(sock, (struct sockaddr *) &serverAddress6, sizeof(serverAddress6)) == -1) {
+                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
+                close(sock);
+                exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(=) Binding was successful!\n"); }
+            }
+
+            // Make server start listening and waiting, and check if listen() was successful.
+            if (listen(sock, MAX_CONNECTIONS) == -1) { // We allow no more than one queue connections requests.
+                if (!q_flag) { printf("Failed to start listening! -> listen() failed with error code : %d\n", errno); }
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            while (true) {
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
+
+                // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
+                memset(&clientAddress6, 0, sizeof(clientAddress6));
+                unsigned int clientAddressLen = sizeof(clientAddress6);
+                // Accept connection.
+                int clientSocket = accept(sock, (struct sockaddr *) &clientAddress6, &clientAddressLen);
                 if (clientSocket == -1) {
                     if (!q_flag) { printf("(-) Failed to accept connection. -> accept() failed with error code: %d\n", errno); }
                     close(sock);
