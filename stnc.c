@@ -32,7 +32,7 @@ unsigned char* generateData (int size);
 void check_checksums (const unsigned char*, const unsigned char*);
 void print_server_usage ();
 void print_client_usage ();
-size_t send_data (unsigned char[], int);
+int send_data (unsigned char[], int);
 void recv_data (int, char*, char*, unsigned char*);
 
 int main(int argc, char* argv[]){
@@ -594,7 +594,7 @@ void print_client_usage() {
 }
 
 //---------------------------------- Sending Data-----------------------------------------
-size_t send_data(unsigned char data[], int socketFD) {
+int send_data(unsigned char data[], int socketFD) {
     size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
     while (totalLengthSent < BUFFER_SIZE) {
         ssize_t bytes = send(socketFD, data + totalLengthSent, BUFFER_SIZE, 0);

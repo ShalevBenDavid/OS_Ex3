@@ -1,7 +1,7 @@
 .PHONY = all clean
 
 CC = gcc
-FLAGS = -Wall -g
+FLAGS = -Wall -g -Wextra -Wno-deprecated-declarations
 LDFLAGS = -lssl -lcrypto
 
 all: stnc
