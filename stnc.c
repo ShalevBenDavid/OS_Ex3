@@ -373,23 +373,78 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 printf("(=) Socket created successfully.\n");
             }
 
+            // Initialize variables for server.
+            struct sockaddr_in serverAddress4;
             // Clean the server address we already created earlier.
-            memset(&serverAddress, '\0', sizeof(serverAddress));
+            memset(&serverAddress4, '\0', sizeof(serverAddress4));
 
             // Assign port and address to "serverAddress".
-            serverAddress.sin_family = AF_INET;
-            serverAddress.sin_port = htons(port); // Short, network byte order.
-            serverAddress.sin_addr.s_addr = inet_addr(address);
+            serverAddress4.sin_family = AF_INET;
+            serverAddress4.sin_port = htons(port); // Short, network byte order.
+            serverAddress4.sin_addr.s_addr = inet_addr(address);
 
             // Convert address to binary.
-            if (inet_pton(AF_INET, address, &serverAddress.sin_addr) <= 0) {
+            if (inet_pton(AF_INET, address, &serverAddress4.sin_addr) <= 0) {
                 printf("(-) Failed to convert IPv4 address to binary! -> inet_pton() failed with error code: %d\n",
                        errno);
                 exit(EXIT_FAILURE);
             }
 
             //Create connection with server.
-            int connection = connect(sock, (struct sockaddr *) &serverAddress, sizeof(serverAddress));
+            int connection = connect(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4));
+
+            // Check if we were successful in connecting with server.
+            if (connection == -1) {
+                printf("(-) Could not connect to server! -> connect() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE); // Exit program and return// EXIT_FAILURE (defined as 1 in stdlib.h).
+            } else {
+                printf("(=) Connection with server established.\n\n");
+            }
+
+            // Sending the data.
+            if (send_data(buffer, sock) == -1) {
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+            //-------------------------------Close Connection-----------------------------
+            if (close(sock) == -1) {
+                printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+            } else {
+                printf("(=) Connection closed!\n");
+            }
+        }
+        // IPv6
+        if (types[1]) {
+            //-------------------------------Create TCP Connection-----------------------------
+            int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+            // Check if we were successful in creating socket.
+            if (sock == -1) {
+                printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE);
+            } else {
+                printf("(=) Socket created successfully.\n");
+            }
+
+            // Initialize variables for server.
+            struct sockaddr_in6 serverAddress6;
+            // Clean the server address we already created earlier.
+            memset(&serverAddress6, '\0', sizeof(serverAddress6));
+
+            // Assign port and address to "serverAddress".
+            serverAddress6.sin6_family = AF_INET6 ;
+            serverAddress6.sin6_port = htons(port); // Short, network byte order.
+
+            // Convert address to binary.
+            if (inet_pton(AF_INET6, address, &serverAddress6.sin6_addr) <= 0) {
+                printf("(-) Failed to convert IPv4 address to binary! -> inet_pton() failed with error code: %d\n",
+                       errno);
+                exit(EXIT_FAILURE);
+            }
+
+            //Create connection with server.
+            int connection = connect(sock, (struct sockaddr *) &serverAddress6, sizeof(serverAddress6));
 
             // Check if we were successful in connecting with server.
             if (connection == -1) {
@@ -617,9 +672,12 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
     // Initialize variables.
     size_t receivedTotalBytes = 0; // Variable for keeping track of number of received bytes.
     ssize_t receivedBytes = 0;
+    struct timeval tv;
+    long long start, end;
 
     // Start measuring time.
-    clock_t start = clock();
+    gettimeofday(&tv, NULL);
+    start = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 
     // While there is still data to receive.
     while (receivedTotalBytes < BUFFER_SIZE + MD5_DIGEST_LENGTH ) {
@@ -632,13 +690,14 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
         receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
     }
     // Stop measuring time.
-    clock_t end = clock();
+    gettimeofday(&tv, NULL);
+    end = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 
     // Calculate time in milliseconds.
-    double duration = (double)(end - start) * 1000.0 / CLOCKS_PER_SEC;
+    long long duration = end - start;
 
     // Print stats.
-    printf("%s_%s,%f\n",type, param, duration);
+    printf("%s_%s,%lld \n",type, param, duration);
 }
 
     
