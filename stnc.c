@@ -15,7 +15,7 @@
 #include <stdbool.h>
 #include <sys/un.h>
 
-#define SIZE 2048 // Size of a chunk.
+#define SIZE 1024 // Size of a chunk.
 #define BUFFER_SIZE 104857600 // 100 MB.
 #define MAX_CONNECTIONS 1 // Allowing only one connection.
 #define NUM_OF_FD 2 // Number of file descriptors we monitor in poll().
@@ -33,7 +33,7 @@ unsigned char* generateData (int size);
 void check_checksums (const unsigned char*, const unsigned char*, bool);
 void print_server_usage ();
 void print_client_usage ();
-int send_data (unsigned char[], int);
+int send_data (unsigned char[], int, char*, void*);
 void recv_data (int, char*, char*, unsigned char*, bool);
 
 int main(int argc, char* argv[]){
@@ -355,8 +355,11 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     }
     printf("(+) Sent connection type (%s, %s) successfully.\n", argv[5], argv[6]);
 
-    // Close socket.
-    close(socketFD);
+    // Closing the socket its not the case of "ipv4 udp".
+    if(strcmp(argv[5],"ipv4") != 0 && strcmp(argv[6], "udp") != 0){
+        // Close socket.
+        close(socketFD);
+    }
 
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     sleep(1);
@@ -402,7 +405,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock) == -1) {
+            if (send_data(buffer, sock, argv[6], (void*)&serverAddress4) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -454,7 +457,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock) == -1) {
+            if (send_data(buffer, sock, argv[6], (void*)&serverAddress6) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -467,6 +470,73 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
         }
     }
+    // UDP
+    if (params[1]) {
+        // IPv4
+        if (types[0]){
+            // UDP connection already exist because we sent the server the connection type earlier.
+            //------------------------------- Send Data -----------------------------
+            if (send_data(buffer, socketFD, argv[6], (void*)&serverAddress) == -1) {
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+            //------------------------------- Close Connection -----------------------------
+            if (close(socketFD) == -1) {
+                printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+            } else {
+                printf("(=) Connection closed!\n");
+            }
+        }
+
+        // IPv6
+        if (types[1]) {
+            // Initialize variables for server.
+            struct sockaddr_in6 serverAddress6;
+            // Resting address.
+            memset(&serverAddress6, 0, sizeof(serverAddress6));
+            // Setting address to be IPv6.
+            serverAddress6.sin6_family = AF_INET6;
+            // Setting the port.
+            serverAddress6.sin6_port = htons(port);
+            // Allow everyone to connect.
+            serverAddress6.sin6_addr = in6addr_any;
+
+            // Convert address to binary.
+            if (inet_pton(AF_INET6, address, &serverAddress6.sin6_addr) <= 0) {
+                printf("(-) Failed to convert IPv6 address to binary! -> inet_pton() failed with error code: %d\n",
+                       errno);
+                exit(EXIT_FAILURE);
+            }
+
+            // Creates UDP socket.
+            int sock = socket(AF_INET6, SOCK_DGRAM, 0);
+
+            // Check if we were successful in creating socket.
+            if (sock == -1) {
+                printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+            } else {
+                printf("(=) UDP Socket created successfully.\n");
+            }
+
+            //------------------------------- Send Data -----------------------------
+            if (send_data(buffer, sock, argv[6], (void*)&serverAddress6) == -1) {
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+            //------------------------------- Close Connection -----------------------------
+            if (close(sock) == -1) {
+                printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+            } else {
+                printf("(=) Connection closed!\n");
+            }
+
+        }
+    }
+
+
     // UDS
     if (types[4]) {
         // Dgram
@@ -507,7 +577,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock) == -1) {
+            if (send_data(buffer, sock, argv[6], (void*)&serverAddressUNIX) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -588,9 +658,11 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
     if (rbytes1 == -1 || rbytes2 == -1) {
         if (!q_flag) { printf("(-) recv() failed with error code: %d\n", errno); }
     }
-
-    // Close socketFD.
-    close(socketFD);
+    // Closing the socket its not the case of "ipv4 udp".
+    if(strcmp(type,"ipv4") != 0 && strcmp(param, "udp") != 0){
+        // Close socket.
+        close(socketFD);
+    }
 
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     //  TCP
@@ -705,7 +777,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 exit(EXIT_FAILURE);
             }
             while (true) {
-                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv6-connections...\n"); }
 
                 // Create sockaddr_in for IPv6 for holding ip address and port of client and cleans it.
                 memset(&clientAddress6, 0, sizeof(clientAddress6));
@@ -730,6 +802,27 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 // Compare the checksums.
                 check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
             }
+        }
+    }
+    // UDP
+    if(!strcmp(param,"udp")){
+        //IPv4
+        if(!strcmp(type,"ipv4")){
+            // We have the same UDP ipv4 socket we created earlier.
+            while(true){
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
+                // Receive data from the user.
+                recv_data(socketFD, type, param, buffer, q_flag);
+                // Do a checksum in server side.
+                md5_checksum(buffer, BUFFER_SIZE, checksum);
+                // Compare the checksums.
+                check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+            }
+            
+        }
+        //IPv6
+        if(!strcmp(type,"ipv6")){
+
         }
     }
     //  UDS
@@ -853,16 +946,36 @@ void print_client_usage() {
 }
 
 //---------------------------------- Sending Data-----------------------------------------
-int send_data(unsigned char data[], int socketFD) {
-    size_t totalLengthSent = 0; // Variable for keeping track of number of bytes sent.
-    while (totalLengthSent < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
-        ssize_t bytes = send(socketFD, data + totalLengthSent,
-                             BUFFER_SIZE + MD5_DIGEST_LENGTH - totalLengthSent, 0);
+int send_data(unsigned char data[], int socketFD, char* param, void* serverAddress) {
+    size_t totalLengthSent = 0; // Variable for keeping track of the number of bytes sent
+    size_t remainingLength = BUFFER_SIZE + MD5_DIGEST_LENGTH; // Remaining length of the message to send
+    size_t maxFragmentSize = SIZE; // Define the maximum fragment size
+
+    while (remainingLength > 0) {
+        size_t fragmentSize;
+
+        if (remainingLength > maxFragmentSize) {
+            fragmentSize = maxFragmentSize;
+        } else {
+            fragmentSize = remainingLength;
+        }
+
+        ssize_t bytes;
+        if (!strcmp(param, "tcp") || !strcmp(param, "stream")) {
+            bytes = send(socketFD, data + totalLengthSent, fragmentSize, 0);
+        } else {
+            bytes = sendto(socketFD, data + totalLengthSent, fragmentSize, 0,
+                           (struct sockaddr*)serverAddress, sizeof(struct sockaddr));
+        }
+
         if (bytes == -1) {
             return -1;
         }
+
         totalLengthSent += bytes;
+        remainingLength -= bytes;
     }
+
     return 1;
 }
 
@@ -880,13 +993,25 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
 
     // While there is still data to receive.
     while (receivedTotalBytes < BUFFER_SIZE + MD5_DIGEST_LENGTH ) {
-        receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
-                             BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
-        if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
-            if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket."); }
-            break;
+        if (!strcmp(param,"tcp") || !strcmp(param,"stream")){
+            receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
+                                BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
+            if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
+                if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket."); }
+                break;
+            }
+            receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
         }
-        receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+        else {
+             receivedBytes = recvfrom(clientSocket, buffer + receivedTotalBytes,
+                                BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0, NULL, NULL);
+            if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
+                if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket."); }
+                break;
+            }
+            receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+
+        }
     }
     // Stop measuring time.
     gettimeofday(&tv, NULL);
