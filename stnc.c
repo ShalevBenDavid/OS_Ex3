@@ -14,6 +14,9 @@
 #include <poll.h>
 #include <stdbool.h>
 #include <sys/un.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #define SIZE 1024 // Size of a chunk.
 #define BUFFER_SIZE 104857600 // 100 MB.
@@ -356,10 +359,8 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     }
     printf("(+) Sent connection type (%s, %s) successfully.\n\n", argv[5], argv[6]);
 
-   
     // Close socket.
     close(socketFD);
-
 
     // <<<<<<<<<<<<<<<<<<<<<<<<< Handling All Combinations >>>>>>>>>>>>>>>>>>>>>>>>>
     sleep(1);
@@ -472,7 +473,6 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     if (params[1]) {
         // IPv4
         if (types[0]){
-
             // Initialize variables for server.
             struct sockaddr_in serverAddress4;
             // Resting address.
@@ -634,6 +634,62 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 printf("(=) Connection closed!\n");
             }
         }
+    }
+    // Pipe
+    if (types[3]) {
+        // Initialize variables for server.
+        struct sockaddr_in serverAddress4;
+        // Resting address.
+        memset(&serverAddress4, 0, sizeof(serverAddress4));
+        // Setting address to be IPv4.
+        serverAddress4.sin_family = AF_INET;
+        // Setting the port.
+        serverAddress4.sin_port = htons(port);
+        // Allow everyone to connect.
+        serverAddress4.sin_addr.s_addr = INADDR_ANY;
+
+        // Creates UDP socket.
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+        // Check if we were successful in creating socket.
+        if (sock == -1) {
+            printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
+        } else {
+            printf("(=) UDP Socket created successfully.\n");
+        }
+
+        // Initializing variables.
+        int fd;
+
+        // Using pipe.
+        mkfifo(filename, 0666);
+
+        // Opening file to write data to.
+        fd = open(filename, O_WRONLY);
+        if (!(fd)) {
+            printf("(-) Failed to open file.\n");
+            exit(EXIT_FAILURE);
+        }
+        // Writing data to the file.
+        if (write(fd, buffer, BUFFER_SIZE + MD5_DIGEST_LENGTH) < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
+            printf("(-) Failed to write to the file.\n");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("(+) Wrote to file successfully.\n");
+        }
+
+        // Notify server we are done writing to pipe.
+        ssize_t sbyte = sendto(sock, "done", 4, 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
+        if (sbyte == -1) {
+            printf("(-) sendto() failed with error code: %d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+        printf("(+) Notified server we are done writing to the pipe.\n ");
+
+        // Close the pipe.
+        close(sock);
+        close(fd);
     }
 }
 
@@ -1054,6 +1110,62 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 close_socket(sock, q_flag);
             }
         }
+        // Pipe
+        if (!strcmp(type, "pipe")) {
+            // Initialize variable for server.
+            struct sockaddr_in serverAddress4;
+            // Resting address.
+            memset(&serverAddress4, 0, sizeof(serverAddress4));
+            // Setting address to be IPv4.
+            serverAddress4.sin_family = AF_INET;
+            // Setting the port.
+            serverAddress4.sin_port = htons(port);
+            // Allow everyone to connect.
+            serverAddress4.sin_addr.s_addr = INADDR_ANY;
+
+            // Creates UDP socket.
+            int sock = socket(AF_INET, SOCK_DGRAM, 0);
+            // Check if we were successful in creating socket.
+            if (sock == -1) {
+                if (!q_flag) {
+                    printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+                }
+                exit(EXIT_FAILURE); // Exit program.
+            } else {
+                if (!q_flag) { printf("(=) UDP Socket created successfully.\n"); }
+            }
+
+            int reuse = 1;
+            if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+                if (!q_flag) { perror("(-) Failed to set SO_REUSEADDR option.\n"); }
+                exit(EXIT_FAILURE);
+            }
+
+            // Binding port and address to socket and check if binding was successful.
+            if (bind(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4)) == -1) {
+                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
+                }
+                close(sock);
+                exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(=) UDP Binding was successful\n"); }
+            }
+            // Receiving <type> and <param> from client.
+            char ans[4];
+            ssize_t rbyte = recvfrom(sock, ans, 4, 0, NULL, NULL);
+            if (rbyte == -1) {
+                if (!q_flag) { printf("(-) recv() failed with error code: %d\n", errno); }
+            }
+            // Receive data from pipe.
+            recv_data(0, type, param,true, buffer, q_flag);
+            printf("(+) Done reading from file.\n");
+            // Do a checksum in server side.
+            md5_checksum(buffer, BUFFER_SIZE, checksum);
+            // Compare the checksums.
+            check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+            //------------------------------- Close Pipe -----------------------------
+            unlink(param);
+        }
     }
 }
 
@@ -1155,42 +1267,60 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
     gettimeofday(&tv, NULL);
     start = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 
-    // While there is still data to receive.
-    while (receivedTotalBytes < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
-        // TCP || Stream.
-        if (flag) {
-            receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
-                                 BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
-            if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
-                if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket.\n"); }
-                break;
-            }
-            receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+    if (!strcmp(type, "pipe")) {
+        // Opening file (pipe) to read data from.
+        int fd = open(param, O_RDONLY);
+        if (!(fd)) {
+            printf("(-) Failed to open file.\n");
+            exit(EXIT_FAILURE);
         }
-        // UDP || Dgram.
-        else {
-            // Call poll and check if event occured.
-            int poll_ret = poll(&pfds, 1, 1000);
 
-            if (poll_ret == -1) {
-                printf("(-) poll() failed with error code: %d\n", errno);
-                return;
-            }
-            else if (poll_ret == 0) {
-                if (!q_flag) { printf("(-) Timeout occurred.\n"); }
-                break;
-            }
-            else {
-                receivedBytes = recvfrom(clientSocket, buffer + receivedTotalBytes,
-                                         BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0, NULL, NULL);
+        // Read data from the file.
+        while ((receivedBytes = read(fd, buffer + receivedTotalBytes, BUFFER_SIZE + MD5_DIGEST_LENGTH)) > 0) {
+            receivedTotalBytes += receivedBytes;
+        }
+
+        // Close file.
+        close(fd);
+    } else {
+        // While there is still data to receive.
+        while (receivedTotalBytes < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
+            // TCP || Stream.
+            if (flag) {
+                receivedBytes = recv(clientSocket, buffer + receivedTotalBytes,
+                                     BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0);
                 if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
                     if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket.\n"); }
                     break;
                 }
+                receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
             }
-            receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+                // UDP || Dgram.
+            else {
+                // Call poll and check if event occured.
+                int poll_ret = poll(&pfds, 1, 1000);
+
+                if (poll_ret == -1) {
+                    printf("(-) poll() failed with error code: %d\n", errno);
+                    return;
+                }
+                else if (poll_ret == 0) {
+                    if (!q_flag) { printf("(-) Timeout occurred.\n"); }
+                    break;
+                }
+                else {
+                    receivedBytes = recvfrom(clientSocket, buffer + receivedTotalBytes,
+                                             BUFFER_SIZE + MD5_DIGEST_LENGTH - receivedTotalBytes, 0, NULL, NULL);
+                    if (receivedBytes <= 0) { // Break if we got an error (-1) or peer closed half side of the socket (0).
+                        if (!q_flag) { printf("(-) Error in receiving data or peer closed half side of the socket.\n"); }
+                        break;
+                    }
+                }
+                receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
+            }
         }
     }
+
     // Stop measuring time.
     gettimeofday(&tv, NULL);
     if (!flag) { tv.tv_sec -= 1;}
