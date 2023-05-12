@@ -33,7 +33,7 @@ unsigned char* generateData (int size);
 void check_checksums (const unsigned char*, const unsigned char*, bool);
 void print_server_usage ();
 void print_client_usage ();
-int send_data (unsigned char[], int, char*, void*);
+int send_data (unsigned char[], int, bool, struct sockaddr*, socklen_t);
 void recv_data (int, char*, char*, unsigned char*, bool);
 
 int main(int argc, char* argv[]){
@@ -405,7 +405,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock, argv[6], (void*)&serverAddress4) == -1) {
+            if (send_data(buffer, sock, true, (struct sockaddr*) &serverAddress4, sizeof(serverAddress4)) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -440,8 +440,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
 
             // Convert address to binary.
             if (inet_pton(AF_INET6, address, &serverAddress6.sin6_addr) <= 0) {
-                printf("(-) Failed to convert IPv6 address to binary! -> inet_pton() failed with error code: %d\n",
-                       errno);
+                printf("(-) Failed to convert IPv6 address to binary! -> inet_pton() failed with error code: %d\n", errno);
                 exit(EXIT_FAILURE);
             }
 
@@ -457,7 +456,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock, argv[6], (void*)&serverAddress6) == -1) {
+            if (send_data(buffer, sock, true, (struct sockaddr*) &serverAddress6, sizeof (serverAddress6)) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -476,7 +475,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
         if (types[0]){
             // UDP connection already exist because we sent the server the connection type earlier.
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, socketFD, argv[6], (void*)&serverAddress) == -1) {
+            if (send_data(buffer, socketFD, argv[6], (struct sockaddr*) &serverAddress, sizeof (serverAddress)) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -488,7 +487,6 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
                 printf("(=) Connection closed!\n");
             }
         }
-
         // IPv6
         if (types[1]) {
             // Initialize variables for server.
@@ -521,7 +519,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock, argv[6], (void*)&serverAddress6) == -1) {
+            if (send_data(buffer, sock, false, (struct sockaddr*) &serverAddress6, sizeof (serverAddress6)) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -532,17 +530,10 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             } else {
                 printf("(=) Connection closed!\n");
             }
-
         }
     }
-
-
     // UDS
     if (types[4]) {
-        // Dgram
-        if (params[2]) {
-
-        }
         // Stream
         if (params[3]) {
             //-------------------------------Create TCP Connection-----------------------------
@@ -577,7 +568,41 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             }
 
             //------------------------------- Send Data -----------------------------
-            if (send_data(buffer, sock, argv[6], (void*)&serverAddressUNIX) == -1) {
+            if (send_data(buffer, sock, true, (struct sockaddr*) &serverAddressUNIX, sizeof(serverAddressUNIX)) == -1) {
+                printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
+            } else {
+                printf("(+) Sent the data successfully.\n");
+            }
+            //------------------------------- Close Connection -----------------------------
+            if (close(sock) == -1) {
+                printf("(-) Failed to close connection! -> close() failed with error code: %d\n", errno);
+            } else {
+                printf("(=) Connection closed!\n");
+            }
+        }
+        // Dgram
+        if (params[2]) {
+            //-------------------------------Create UDS Dgram Connection-----------------------------
+            int sock = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+            // Check if we were successful in creating socket.
+            if (sock == -1) {
+                printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
+                exit(EXIT_FAILURE);
+            } else {
+                printf("(=) UDS Dgram Socket created successfully.\n");
+            }
+
+            struct sockaddr_un serverAddressUNIX;
+            // Clean the server address.
+            memset(&serverAddressUNIX, '\0', sizeof(serverAddressUNIX));
+
+            // Assign address family to "serverAddressUNIX".
+            serverAddressUNIX.sun_family = AF_UNIX;
+            strncpy(serverAddressUNIX.sun_path, UDS_PATH, sizeof(serverAddressUNIX.sun_path) - 1);
+
+            //------------------------------- Send Data -----------------------------
+            if (send_data(buffer, sock, false, (struct sockaddr*) &serverAddressUNIX, sizeof(serverAddressUNIX)) == -1) {
                 printf("(-) Failed to send data! -> send() failed with error code: %d\n", errno);
             } else {
                 printf("(+) Sent the data successfully.\n");
@@ -885,6 +910,41 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                 check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
             }
         }
+        // Dgram
+        if (!strcmp(param, "dgram")) {
+            // Creates UDS socket.
+            int sock = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+            // Initialize variables for server.
+            struct sockaddr_un serverAddressUNIX;
+
+            // Resting address.
+            memset(&serverAddressUNIX, 0, sizeof(serverAddressUNIX));
+            // Setting address family to be AF_UNIX.
+            serverAddressUNIX.sun_family = AF_UNIX;
+            strcpy(serverAddressUNIX.sun_path, UDS_PATH);
+            unlink(serverAddressUNIX.sun_path);
+
+            // Binding address to socket and check if binding was successful.
+            if (bind(sock, (struct sockaddr *) &serverAddressUNIX, sizeof(serverAddressUNIX)) == -1) {
+                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno); }
+                close(sock);
+                exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(=) Binding was successful!\n"); }
+            }
+
+            while (true) {
+                if (!q_flag) { printf("(=) Waiting for incoming UDS Dgram-messages...\n"); }
+
+                // Receive data from the user.
+                recv_data(sock, type, param, buffer, q_flag);
+                // Do a checksum in server side.
+                md5_checksum(buffer, BUFFER_SIZE, checksum);
+                // Compare the checksums.
+                check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+            }
+        }
     }
 }
 
@@ -946,7 +1006,7 @@ void print_client_usage() {
 }
 
 //---------------------------------- Sending Data-----------------------------------------
-int send_data(unsigned char data[], int socketFD, char* param, void* serverAddress) {
+int send_data(unsigned char data[], int socketFD, bool flag, struct sockaddr* serverAddress, socklen_t addressLength) {
     size_t totalLengthSent = 0; // Variable for keeping track of the number of bytes sent
     size_t remainingLength = BUFFER_SIZE + MD5_DIGEST_LENGTH; // Remaining length of the message to send
     size_t maxFragmentSize = SIZE; // Define the maximum fragment size
@@ -961,11 +1021,10 @@ int send_data(unsigned char data[], int socketFD, char* param, void* serverAddre
         }
 
         ssize_t bytes;
-        if (!strcmp(param, "tcp") || !strcmp(param, "stream")) {
+        if (flag) {
             bytes = send(socketFD, data + totalLengthSent, fragmentSize, 0);
         } else {
-            bytes = sendto(socketFD, data + totalLengthSent, fragmentSize, 0,
-                           (struct sockaddr*)serverAddress, sizeof(struct sockaddr));
+            bytes = sendto(socketFD, data + totalLengthSent, fragmentSize, 0, serverAddress, addressLength);
         }
 
         if (bytes == -1) {
@@ -1023,7 +1082,3 @@ void recv_data (int clientSocket, char* type, char* param, unsigned char* buffer
     // Print stats.
     printf("%s_%s,%lld \n",type, param, duration);
 }
-
-    
-
-
