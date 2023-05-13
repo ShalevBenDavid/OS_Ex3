@@ -17,9 +17,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <sys/mman.h>
-
 
 #define SIZE 1024 // Size of a chunk.
 #define BUFFER_SIZE 104857600 // 100 MB.
@@ -640,16 +638,18 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     }
     // Pipe
     if (types[3]) {
-
         // Using pipe.
         mkfifo(filename, 0666);
 
         // Opening file to write data to.
         int fd = open(filename, O_WRONLY);
         if (!(fd)) {
-            printf("(-) Failed to open file.\n");
+            printf("(-) Failed to open pipe.\n");
             exit(EXIT_FAILURE);
+        } else {
+            printf("(+) Opened pipe.");
         }
+
         // Writing data to the file.
         if (write(fd, buffer, BUFFER_SIZE + MD5_DIGEST_LENGTH) < BUFFER_SIZE + MD5_DIGEST_LENGTH) {
             printf("(-) Failed to write to the file.\n");
@@ -662,39 +662,41 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
         close(fd);
     }
     // Mmap
-    if(types[2]){
+    if(types[2]) {
         // Open the shared memory region.
         int fd = shm_open(filename, O_CREAT | O_RDWR, 0666);
         if (!(fd)) {
-            printf("(-) shm_open() failed.\n");
+            printf("(-) Opening shared file region failed.\n");
             exit(EXIT_FAILURE);
+        } else {
+            printf("(+) Opened shared file region.\n");
         }
 
         // Set the size of the shared memory region.
         ftruncate(fd, BUFFER_SIZE + MD5_DIGEST_LENGTH);
 
-        // Map the shared memory region into the virtual address space
-        void* ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        if (ptr == MAP_FAILED)
-        {
-            printf("(-) Mmap failed.\n");
+        // Map the shared memory region into the virtual address space.
+        void* mmap_ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (mmap_ptr == MAP_FAILED) {
+            printf("(-) mmap() failed.\n");
             exit(EXIT_FAILURE);
+        } else {
+            printf("(+) mmap() succeeded.\n");
         }
 
         // Write data to the shared memory.
-        unsigned char* result = memcpy(ptr, buffer, BUFFER_SIZE + MD5_DIGEST_LENGTH);
-        if (result == NULL){
+        unsigned char* result = memcpy(mmap_ptr, buffer, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+        if (result == NULL) {
             printf("(-) Failed to write data to the shared memory.\n");
             exit(EXIT_FAILURE);
         } else {
-            printf("(+) Wrote to shared memory successfully.\n");
+            printf("(+) Wrote data to shared memory successfully.\n");
         }
     
         // Unmap the shared memory.
-        munmap(ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+        munmap(mmap_ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
         // Close the shared memory fd.
         close(fd);
-        
     }
 }
 
@@ -1118,7 +1120,6 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
         // Pipe
         if (!strcmp(type, "pipe")) {
             sleep(1);
-
             // Using pipe.
             mkfifo(param, 0666);
 
@@ -1134,34 +1135,60 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
         }
         // Mmap
         if (!strcmp(type, "mmap")) {
+            sleep(2);
+            struct timeval tv;
+            long long start, end;
+
+            // Start measuring time.
+            gettimeofday(&tv, NULL);
+            start = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+
             // Create the shared memory region
             int fd = shm_open(param, O_CREAT | O_RDWR, 0666);
             if (!(fd)) {
-                printf("(-) shm_open() failed.\n");
+                if (!q_flag) { printf("(-) Opening shared file region failed.\n"); }
                 exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(+) Opened shared file region.\n"); }
             }
 
             // Set the size of the shared memory region.
             ftruncate(fd, BUFFER_SIZE + MD5_DIGEST_LENGTH);
 
             // Map the shared memory region into the virtual address space.
-            void *ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            if (ptr == MAP_FAILED)
-            {
-                printf("(-) Mmap failed.\n");
+            void* mmap_ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (mmap_ptr == MAP_FAILED) {
+                if (!q_flag) { printf("(-) mmap() failed.\n"); }
                 exit(EXIT_FAILURE);
+            } else {
+                if (!q_flag) { printf("(+) mmap succeeded.\n"); }
             }
-            
+
             // Read data from the shared memory.
-            buffer = (unsigned char*) ptr;
+            buffer = (unsigned char*) mmap_ptr;
             if (!q_flag) { printf("(+) Done reading from shared memory.\n"); }
+
+            // Stop measuring time.
+            gettimeofday(&tv, NULL);
+            end = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+
+            // Calculate time in milliseconds.
+            long long duration = end - start;
+
+            // Print stats.
+            if (!q_flag) {
+                printf("(=) %d / %d (%d %%) was received successfully.\n", BUFFER_SIZE + MD5_DIGEST_LENGTH,
+                       100, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+            }
+            printf("%s,%lld \n", type, duration);
+
             // Do a checksum in server side.
             md5_checksum(buffer, BUFFER_SIZE, checksum);
             // Compare the checksums.
             check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
 
             // Unmap the shared memory.
-            munmap(ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+            munmap(mmap_ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
             // Close the shared memory fd.
             close(fd);
             // Unlink the shared memory region
@@ -1335,7 +1362,8 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
         printf("(=) %lu / %d (%lu %%) was received successfully.\n", receivedTotalBytes, BUFFER_SIZE + MD5_DIGEST_LENGTH,
                ((receivedTotalBytes * 100) / (BUFFER_SIZE + MD5_DIGEST_LENGTH)));
     }
-    printf("%s_%s,%lld \n", type, param, duration);
+    if (!strcmp(type, "pipe")) { printf("%s,%lld \n", type, duration); }
+    else { printf("%s_%s,%lld \n", type, param, duration); }
 }
 
 //---------------------------------- Close Connection-----------------------------------------
