@@ -1,0 +1,46 @@
+In this read.ME we will explain how to run each part of this exercise.
+
+Instructions:
+* First of all, run the command "make" or "make all" in the terminal to generate all executable files.
+
+* In order to clean the files, run the command "make clean".
+
+* Since we used openSSL Library for the hash function MD5, please run the following command in order to install 
+the OpenSSL development libraries and headers on your system: "sudo apt-get install libssl-dev"
+
+* If you wish to end chat with the server, press "ctrl+c" to end communication and hung up.
+When running in performance mode, at the end of the test both client and server will finish.
+
+Part A:
+This is a chat tool we implemented using poll() function both in client and server in order
+to check each time which of the file descriptors is available (standard input or socket).
+Usage For Client Side: ./stnc -c IP PORT
+Usage For Server Side: ./stnc -s PORT
+To play around with this tool, open 2 shell windows (terminals) and run each command to
+use client in one window and server in the other window. Then you can send messages to the other side
+and get a response.
+- This chat is based Ipv4 TCP protocol for communication purposes.
+
+Part B:
+In here, we extended the chat tool from part A to support testing for differnt types of communications.
+This supports 8 combinations:
+->
+    ipv4 tcp
+    ipv4 udp
+    ipv6 tcp
+    ipv6 udp
+    uds dgram
+    uds stream mmap filename pipe filename
+->
+Usage For Client Side: ./stnc -c IP PORT -p <type> <param>
+Usage For Server Side: ./stnc -s port -p (p for performance test) -q (q for quiet)
+* -q flag is optional and will only print the stat's results.
+<type> : ipv4,ipv6,mmap,pipe,uds.
+<param> : udp/tcp/dgram/stream or file name.
+
+Notes:
+- We made sure the order of the flags didn't matter, but it's best to stick with the usage.
+- Given a wrong usage, you should be prompted to a usage explanation and the program will exit.
+- All code is in .c file named stnc.c.
+
+Our system environment was macOS && Ubuntu 20.04 && Ubuntu 22.04.
