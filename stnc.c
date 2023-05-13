@@ -637,36 +637,12 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
     }
     // Pipe
     if (types[3]) {
-        // Initialize variables for server.
-        struct sockaddr_in serverAddress4;
-        // Resting address.
-        memset(&serverAddress4, 0, sizeof(serverAddress4));
-        // Setting address to be IPv4.
-        serverAddress4.sin_family = AF_INET;
-        // Setting the port.
-        serverAddress4.sin_port = htons(port);
-        // Allow everyone to connect.
-        serverAddress4.sin_addr.s_addr = INADDR_ANY;
-
-        // Creates UDP socket.
-        int sock = socket(AF_INET, SOCK_DGRAM, 0);
-
-        // Check if we were successful in creating socket.
-        if (sock == -1) {
-            printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
-            exit(EXIT_FAILURE); // Exit program and return EXIT_FAILURE (defined as 1 in stdlib.h).
-        } else {
-            printf("(=) UDP Socket created successfully.\n");
-        }
-
-        // Initializing variables.
-        int fd;
 
         // Using pipe.
         mkfifo(filename, 0666);
 
         // Opening file to write data to.
-        fd = open(filename, O_WRONLY);
+        int fd = open(filename, O_WRONLY);
         if (!(fd)) {
             printf("(-) Failed to open file.\n");
             exit(EXIT_FAILURE);
@@ -679,16 +655,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
             printf("(+) Wrote to file successfully.\n");
         }
 
-        // Notify server we are done writing to pipe.
-        ssize_t sbyte = sendto(sock, "done", 4, 0, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
-        if (sbyte == -1) {
-            printf("(-) sendto() failed with error code: %d\n", errno);
-            exit(EXIT_FAILURE);
-        }
-        printf("(+) Notified server we are done writing to the pipe.\n ");
-
         // Close the pipe.
-        close(sock);
         close(fd);
     }
 }
@@ -1112,50 +1079,11 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
         }
         // Pipe
         if (!strcmp(type, "pipe")) {
-            // Initialize variable for server.
-            struct sockaddr_in serverAddress4;
-            // Resting address.
-            memset(&serverAddress4, 0, sizeof(serverAddress4));
-            // Setting address to be IPv4.
-            serverAddress4.sin_family = AF_INET;
-            // Setting the port.
-            serverAddress4.sin_port = htons(port);
-            // Allow everyone to connect.
-            serverAddress4.sin_addr.s_addr = INADDR_ANY;
+            sleep(1);
 
-            // Creates UDP socket.
-            int sock = socket(AF_INET, SOCK_DGRAM, 0);
-            // Check if we were successful in creating socket.
-            if (sock == -1) {
-                if (!q_flag) {
-                    printf("(-) Could not create socket! -> socket() failed with error code: %d\n", errno);
-                }
-                exit(EXIT_FAILURE); // Exit program.
-            } else {
-                if (!q_flag) { printf("(=) UDP Socket created successfully.\n"); }
-            }
+            // Using pipe.
+            mkfifo(param, 0666);
 
-            int reuse = 1;
-            if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-                if (!q_flag) { perror("(-) Failed to set SO_REUSEADDR option.\n"); }
-                exit(EXIT_FAILURE);
-            }
-
-            // Binding port and address to socket and check if binding was successful.
-            if (bind(sock, (struct sockaddr *) &serverAddress4, sizeof(serverAddress4)) == -1) {
-                if (!q_flag) { printf("(-) Failed to bind address && port to socket! -> bind() failed with error code: %d\n", errno);
-                }
-                close(sock);
-                exit(EXIT_FAILURE);
-            } else {
-                if (!q_flag) { printf("(=) UDP Binding was successful\n"); }
-            }
-            // Receiving <type> and <param> from client.
-            char ans[4];
-            ssize_t rbyte = recvfrom(sock, ans, 4, 0, NULL, NULL);
-            if (rbyte == -1) {
-                if (!q_flag) { printf("(-) recv() failed with error code: %d\n", errno); }
-            }
             // Receive data from pipe.
             recv_data(0, type, param,true, buffer, q_flag);
             printf("(+) Done reading from file.\n");
