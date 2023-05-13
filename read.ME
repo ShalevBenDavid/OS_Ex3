@@ -30,7 +30,9 @@ This supports 8 combinations:
     ipv6 tcp
     ipv6 udp
     uds dgram
-    uds stream mmap filename pipe filename
+    uds stream
+    mmap filename
+    pipe filename
 ->
 Usage For Client Side: ./stnc -c IP PORT -p <type> <param>
 Usage For Server Side: ./stnc -s port -p (p for performance test) -q (q for quiet)
@@ -39,6 +41,7 @@ Usage For Server Side: ./stnc -s port -p (p for performance test) -q (q for quie
 <param> : udp/tcp/dgram/stream or file name.
 
 Notes:
+- Make sure you run the server before the client.
 - We made sure the order of the flags didn't matter, but it's best to stick with the usage.
 - Given a wrong usage, you should be prompted to a usage explanation and the program will exit.
 - All code is in .c file named stnc.c.
