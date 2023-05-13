@@ -17,6 +17,9 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+
 
 #define SIZE 1024 // Size of a chunk.
 #define BUFFER_SIZE 104857600 // 100 MB.
@@ -658,6 +661,41 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
         // Close the pipe.
         close(fd);
     }
+    // Mmap
+    if(types[2]){
+        // Open the shared memory region.
+        int fd = shm_open(filename, O_CREAT | O_RDWR, 0666);
+        if (!(fd)) {
+            printf("(-) shm_open() failed.\n");
+            exit(EXIT_FAILURE);
+        }
+
+        // Set the size of the shared memory region.
+        ftruncate(fd, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+
+        // Map the shared memory region into the virtual address space
+        void* ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (ptr == MAP_FAILED)
+        {
+            printf("(-) Mmap failed.\n");
+            exit(EXIT_FAILURE);
+        }
+
+        // Write data to the shared memory.
+        unsigned char* result = memcpy(ptr, buffer, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+        if (result == NULL){
+            printf("(-) Failed to write data to the shared memory.\n");
+            exit(EXIT_FAILURE);
+        } else {
+            printf("(+) Wrote to shared memory successfully.\n");
+        }
+    
+        // Unmap the shared memory.
+        munmap(ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+        // Close the shared memory fd.
+        close(fd);
+        
+    }
 }
 
 //---------------------------------- Server Side - Performance Mode ---------------------------------
@@ -1086,13 +1124,48 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
 
             // Receive data from pipe.
             recv_data(0, type, param,true, buffer, q_flag);
-            printf("(+) Done reading from file.\n");
+            if (!q_flag) { printf("(+) Done reading from file.\n"); }
             // Do a checksum in server side.
             md5_checksum(buffer, BUFFER_SIZE, checksum);
             // Compare the checksums.
             check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
             //------------------------------- Close Pipe -----------------------------
             unlink(param);
+        }
+        // Mmap
+        if (!strcmp(type, "mmap")) {
+            // Create the shared memory region
+            int fd = shm_open(param, O_CREAT | O_RDWR, 0666);
+            if (!(fd)) {
+                printf("(-) shm_open() failed.\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // Set the size of the shared memory region.
+            ftruncate(fd, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+
+            // Map the shared memory region into the virtual address space.
+            void *ptr = mmap(0, BUFFER_SIZE + MD5_DIGEST_LENGTH, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (ptr == MAP_FAILED)
+            {
+                printf("(-) Mmap failed.\n");
+                exit(EXIT_FAILURE);
+            }
+            
+            // Read data from the shared memory.
+            buffer = (unsigned char*) ptr;
+            if (!q_flag) { printf("(+) Done reading from shared memory.\n"); }
+            // Do a checksum in server side.
+            md5_checksum(buffer, BUFFER_SIZE, checksum);
+            // Compare the checksums.
+            check_checksums(checksum, buffer + BUFFER_SIZE, q_flag);
+
+            // Unmap the shared memory.
+            munmap(ptr, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+            // Close the shared memory fd.
+            close(fd);
+            // Unlink the shared memory region
+            shm_unlink(param);
         }
     }
 }
@@ -1199,7 +1272,7 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
         // Opening file (pipe) to read data from.
         int fd = open(param, O_RDONLY);
         if (!(fd)) {
-            printf("(-) Failed to open file.\n");
+            if (!q_flag) { printf("(-) Failed to open file.\n"); }
             exit(EXIT_FAILURE);
         }
 
