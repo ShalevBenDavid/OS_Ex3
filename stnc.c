@@ -1295,6 +1295,7 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
     ssize_t receivedBytes = 0;
     struct timeval tv;
     long long start, end;
+    bool timeout_flag = false;
 
     // Create pollfd to check for timeout.
     struct pollfd pfds;
@@ -1334,10 +1335,10 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
                 }
                 receivedTotalBytes += receivedBytes; // Add the new received bytes to the total bytes received.
             }
-                // UDP || Dgram.
+            // UDP || Dgram.
             else {
                 // Call poll and check if event occured.
-                int poll_ret = poll(&pfds, 1, 1000);
+                int poll_ret = poll(&pfds, 1, 2000);
 
                 if (poll_ret == -1) {
                     printf("(-) poll() failed with error code: %d\n", errno);
@@ -1345,6 +1346,7 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
                 }
                 else if (poll_ret == 0) {
                     if (!q_flag) { printf("(-) Timeout occurred.\n"); }
+                    timeout_flag = true;
                     break;
                 }
                 else {
@@ -1362,7 +1364,7 @@ void recv_data(int clientSocket, char *type, char *param, bool flag, unsigned ch
 
     // Stop measuring time.
     gettimeofday(&tv, NULL);
-    if (!flag) { tv.tv_sec -= 1;}
+    if (!flag && timeout_flag) { tv.tv_sec -= 2;}
     end = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 
     // Calculate time in milliseconds.

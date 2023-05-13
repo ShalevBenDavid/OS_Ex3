@@ -42,5 +42,9 @@ Notes:
 - We made sure the order of the flags didn't matter, but it's best to stick with the usage.
 - Given a wrong usage, you should be prompted to a usage explanation and the program will exit.
 - All code is in .c file named stnc.c.
+- To test IPv4 enter the loop-back address 127.0.0.1 and to test IPv6 enter ::1
+- In datagram/udp, a timeout may occur before the sender sends data.
+It can be fixed by increasing the timeout size (we put 2 sec) most of the times, but in some cases it can cause
+the socket to close before receiving data meaning we will get 0% data.
 
 Our system environment was macOS && Ubuntu 20.04 && Ubuntu 22.04.
