@@ -315,7 +315,18 @@ void handle_server (int argc, char* argv[]) {
 //---------------------------------- Client Side - Performance Mode ---------------------------------
 void handle_client_performance (int argc, char* argv[], const bool types[], const bool params[], char* filename) {
     // Not the right format.
-    if(argc > 7){
+    if (argc > 7){
+        print_client_usage();
+        exit(EXIT_FAILURE);
+    }
+    int count_type = 0, count_param = 0;
+    // Count type and param usages.
+    for (int i = 0; i < 5; i++) {
+        if (i < 5 && types[i]) { count_type += 1; }
+        if (i < 4 && params[i]) { count_param += 1; }
+    }
+    // Check validation of <type> and <param>.
+    if (count_type != 1 || (count_param != 1 && !filename)) {
         print_client_usage();
         exit(EXIT_FAILURE);
     }
@@ -703,7 +714,7 @@ void handle_client_performance (int argc, char* argv[], const bool types[], cons
 //---------------------------------- Server Side - Performance Mode ---------------------------------
 void handle_server_performance (int argc, char* argv[], bool q_flag) {
     // Not the right format.
-    if (argc > 5) {
+    if ((q_flag && argc > 5) || (!q_flag && argc > 4)) {
         print_server_usage();
         exit(EXIT_FAILURE);
     }
@@ -819,7 +830,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
-                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connections...\n"); }
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connection...\n"); }
 
                 // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
                 memset(&clientAddress4, 0, sizeof(clientAddress4));
@@ -887,7 +898,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
-                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv6-connections...\n"); }
+                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv6-connection...\n"); }
 
                 // Create sockaddr_in for IPv6 for holding ip address and port of client and cleans it.
                 memset(&clientAddress6, 0, sizeof(clientAddress6));
@@ -1057,7 +1068,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
-                if (!q_flag) { printf("(=) Waiting for incoming TCP IPv4-connection...\n"); }
+                if (!q_flag) { printf("(=) Waiting for incoming UDS Dgram-message...\n"); }
 
                 // Create sockaddr_in for IPv4 for holding ip address and port of client and cleans it.
                 memset(&clientAddressUNIX, 0, sizeof(clientAddressUNIX));
@@ -1178,7 +1189,7 @@ void handle_server_performance (int argc, char* argv[], bool q_flag) {
             // Print stats.
             if (!q_flag) {
                 printf("(=) %d / %d (%d %%) was received successfully.\n", BUFFER_SIZE + MD5_DIGEST_LENGTH,
-                       100, BUFFER_SIZE + MD5_DIGEST_LENGTH);
+                       BUFFER_SIZE + MD5_DIGEST_LENGTH, 100);
             }
             printf("%s,%lld \n", type, duration);
 
